@@ -1,0 +1,259 @@
+---
+title: Cedar Policy Language Overview
+description: Learn the fundamentals of Cedar policy language for AWS Verified Permissions
+---
+
+# Cedar Policy Language Overview
+
+Cedar is a policy language developed by AWS for defining fine-grained permissions. It's used by AWS Verified Permissions to implement authorization logic that's separate from your application code.
+
+## What is Cedar?
+
+Cedar is a declarative, human-readable policy language that lets you define authorization rules using a simple syntax. Policies in Cedar are evaluated to determine whether a principal (user) can perform an action on a resource.
+
+### Key Features
+
+- **Human-readable syntax** - Policies are easy to read and understand
+- **Strongly typed** - Schema validation ensures policy correctness
+- **Composable** - Multiple policies can work together
+- **Analysis tools** - Built-in validation and testing capabilities
+- **Open source** - Available on [GitHub](https://github.com/cedar-policy/cedar)
+
+## Basic Policy Structure
+
+Every Cedar policy follows this basic structure:
+
+```cedar
+permit (
+  principal,
+  action,
+  resource
+)
+when {
+  condition
+};
+```
+
+### Components
+
+<Card title="Effect" icon="check-circle">
+  Either `permit` or `forbid` - determines whether the policy allows or denies access
+</Card>
+
+<Card title="Principal" icon="user">
+  The entity performing the action (e.g., a User)
+</Card>
+
+<Card title="Action" icon="bolt">
+  The operation being performed (e.g., Read, Edit, Delete)
+</Card>
+
+<Card title="Resource" icon="file">
+  The entity being accessed (e.g., a Document)
+</Card>
+
+<Card title="Conditions" icon="filter">
+  Optional conditions using `when` or `unless` clauses
+</Card>
+
+## Your First Cedar Policy
+
+Here's a simple policy that allows all Analysts to read documents:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+);
+```
+
+This policy says:
+- **Effect**: `permit` (allow access)
+- **Principal**: Any user who is a member of the Analyst role
+- **Action**: Must be the Read action
+- **Resource**: Any resource (no restrictions)
+
+## Policy Effects: Permit vs Forbid
+
+Cedar supports two policy effects:
+
+<Tabs>
+  <Tab title="permit">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+    
+    A `permit` policy explicitly allows access. Multiple permit policies can apply - if any permit policy matches and no forbid policy matches, access is granted.
+  </Tab>
+  
+  <Tab title="forbid">
+    ```cedar
+    forbid (
+      principal in FinancialApp::Role::"Auditor",
+      action in [FinancialApp::Action::"Edit", FinancialApp::Action::"Delete"],
+      resource
+    );
+    ```
+    
+    A `forbid` policy explicitly denies access. **Forbid always wins** - if any forbid policy matches, access is denied regardless of permit policies.
+  </Tab>
+</Tabs>
+
+## Conditions: When and Unless
+
+You can add conditions to policies using `when` and `unless` clauses:
+
+### When Clause
+
+The policy applies only if the condition is true:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.department == resource.department
+};
+```
+
+This policy allows Analysts to read documents only if they're in the same department.
+
+### Unless Clause
+
+The policy applies only if the condition is false:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+unless {
+  resource.classification == "top-secret"
+};
+```
+
+This policy allows Analysts to read documents unless they're classified as top-secret.
+
+## Operators and Comparisons
+
+Cedar supports various operators for building conditions:
+
+| Operator | Description | Example |
+|----------|-------------|----------|
+| `==` | Equality | `principal.department == "Finance"` |
+| `!=` | Inequality | `resource.status != "archived"` |
+| `<`, `<=`, `>`, `>=` | Comparison | `principal.clearance_level >= 3` |
+| `in` | Membership | `principal in FinancialApp::Role::"Admin"` |
+| `has` | Attribute presence | `principal has email` |
+| `&&` | Logical AND | `condition1 && condition2` |
+| `||` | Logical OR | `condition1 || condition2` |
+| `!` | Logical NOT | `!condition` |
+
+## Decision Logic
+
+AWS Verified Permissions evaluates all policies and makes a decision using this logic:
+
+<Steps>
+  <Step title="Default Deny">
+    If no policies match, access is **denied** by default (Zero Trust principle)
+  </Step>
+  
+  <Step title="Check Forbid">
+    If any `forbid` policy matches, access is **denied** (forbid always wins)
+  </Step>
+  
+  <Step title="Check Permit">
+    If any `permit` policy matches and no forbid matches, access is **allowed**
+  </Step>
+</Steps>
+
+<Warning>
+  **Forbid takes precedence**: Even if 10 permit policies match, a single forbid policy will deny access.
+</Warning>
+
+## Policy Sets
+
+In a real application, you'll have multiple policies working together:
+
+```cedar
+// Policy 1: Analysts can read their department's documents
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.department == resource.department
+};
+
+// Policy 2: Admins can do everything
+permit (
+  principal in FinancialApp::Role::"Admin",
+  action,
+  resource
+);
+
+// Policy 3: Nobody can delete confidential documents
+forbid (
+  principal,
+  action == FinancialApp::Action::"Delete",
+  resource
+)
+when {
+  resource.classification == "confidential"
+};
+```
+
+These policies are evaluated together to make authorization decisions.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with deny by default">
+    AWS Verified Permissions denies access by default. Only write permit policies for allowed actions. This follows the Zero Trust security model.
+  </Accordion>
+  
+  <Accordion title="Use descriptive policy names">
+    Name policies clearly: `AllowAnalystReadOwnDepartment` is better than `Policy1`.
+  </Accordion>
+  
+  <Accordion title="Keep policies simple">
+    Each policy should express one clear authorization rule. Complex logic should be split into multiple policies.
+  </Accordion>
+  
+  <Accordion title="Use when clauses for ABAC">
+    Leverage attribute-based access control with `when` clauses to create dynamic, context-aware policies.
+  </Accordion>
+  
+  <Accordion title="Test your policies">
+    Use the Cedar Playground or AVP console to test policies before deploying to production.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Schema Definition" icon="diagram-project" href="/policies/schema">
+    Learn about the FinancialApp schema with entity types and actions
+  </Card>
+  
+  <Card title="Policy Examples" icon="code" href="/policies/examples">
+    See real-world Cedar policies from the demo scenarios
+  </Card>
+  
+  <Card title="RBAC vs ABAC" icon="shield" href="/policies/rbac-abac">
+    Understand role-based and attribute-based access control patterns
+  </Card>
+  
+  <Card title="Cedar Playground" icon="play" href="https://www.cedarpolicy.com/en/playground">
+    Practice writing Cedar policies in your browser
+  </Card>
+</CardGroup>

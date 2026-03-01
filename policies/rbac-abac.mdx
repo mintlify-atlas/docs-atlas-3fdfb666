@@ -1,0 +1,711 @@
+---
+title: RBAC vs ABAC
+description: Understanding role-based access control (RBAC) and attribute-based access control (ABAC) with Cedar policy examples
+---
+
+# RBAC vs ABAC
+
+AWS Verified Permissions and Cedar support both Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC). Understanding when to use each pattern is key to building flexible, maintainable authorization systems.
+
+## Overview
+
+<CardGroup cols={2}>
+  <Card title="RBAC" icon="users">
+    **Role-Based Access Control**
+    
+    Access decisions based on user roles (Admin, Analyst, Auditor)
+    
+    **Pros:**
+    - Simple to understand
+    - Easy to manage
+    - Matches organizational structure
+    
+    **Cons:**
+    - Less flexible
+    - Can lead to role explosion
+    - Coarse-grained control
+  </Card>
+  
+  <Card title="ABAC" icon="sliders">
+    **Attribute-Based Access Control**
+    
+    Access decisions based on attributes (department, clearance level, classification)
+    
+    **Pros:**
+    - Very flexible
+    - Fine-grained control
+    - Scales to complex scenarios
+    
+    **Cons:**
+    - More complex to reason about
+    - Requires more planning
+    - Needs attribute management
+  </Card>
+</CardGroup>
+
+<Info>
+  **Cedar's Power**: You don't have to choose! Cedar lets you combine RBAC and ABAC in the same policy for maximum flexibility.
+</Info>
+
+---
+
+## RBAC: Role-Based Access Control
+
+RBAC grants permissions based on what role a user has. It's the traditional approach used by most applications.
+
+### Pure RBAC Example
+
+This policy allows any Auditor to read any document:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Auditor",
+  action == FinancialApp::Action::"Read",
+  resource
+);
+```
+
+**Key characteristics:**
+- Decision based solely on role membership
+- No attribute checks
+- All Auditors get the same permissions
+- Simple to understand and manage
+
+### How RBAC Works in Cedar
+
+<Steps>
+  <Step title="Define Roles">
+    Roles are defined in the schema as entity types:
+    ```json
+    "Role": {
+        "memberOfTypes": []
+    }
+    ```
+  </Step>
+  
+  <Step title="Assign Users to Roles">
+    Users become members of roles via the `parents` field:
+    ```python
+    {
+        "identifier": {"entityType": "FinancialApp::User", "entityId": "alice"},
+        "parents": [
+            {"entityType": "FinancialApp::Role", "entityId": "Analyst"}
+        ]
+    }
+    ```
+  </Step>
+  
+  <Step title="Write Role-Based Policies">
+    Use the `principal in Role::"RoleName"` syntax:
+    ```cedar
+    principal in FinancialApp::Role::"Analyst"
+    ```
+  </Step>
+  
+  <Step title="AVP Evaluates Membership">
+    AVP checks if the user is a member of the specified role and grants access accordingly.
+  </Step>
+</Steps>
+
+### Common RBAC Patterns
+
+<Tabs>
+  <Tab title="Admin Access">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Admin",
+      action,
+      resource
+    );
+    ```
+    
+    Admins can do anything. Classic superuser pattern.
+  </Tab>
+  
+  <Tab title="Role-Specific Actions">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action in [
+        FinancialApp::Action::"Read",
+        FinancialApp::Action::"Edit"
+      ],
+      resource
+    );
+    ```
+    
+    Analysts can read and edit, but not delete.
+  </Tab>
+  
+  <Tab title="Multiple Roles">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Manager",
+      action == FinancialApp::Action::"Approve",
+      resource
+    );
+    
+    permit (
+      principal in FinancialApp::Role::"Director",
+      action == FinancialApp::Action::"Approve",
+      resource
+    );
+    ```
+    
+    Both Managers and Directors can approve. You can also combine this into one policy using `||` operator.
+  </Tab>
+</Tabs>
+
+---
+
+## ABAC: Attribute-Based Access Control
+
+ABAC grants permissions based on attributes of the user, resource, action, or environment. It's more flexible but requires more careful design.
+
+### Pure ABAC Example
+
+This policy allows access only if departments match:
+
+```cedar
+permit (
+  principal,
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.department == resource.department
+};
+```
+
+**Key characteristics:**
+- Decision based on attributes, not roles
+- Works for any user regardless of role
+- Dynamic based on context
+- Can express complex business rules
+
+### Attribute Types
+
+ABAC policies can check different types of attributes:
+
+<Tabs>
+  <Tab title="Principal Attributes">
+    Attributes of the user making the request:
+    
+    ```cedar
+    when {
+      principal.department == "Finance" &&
+      principal.clearance_level >= 3
+    }
+    ```
+    
+    **Examples:**
+    - `principal.department`
+    - `principal.clearance_level`
+    - `principal.email`
+    - `principal.title`
+  </Tab>
+  
+  <Tab title="Resource Attributes">
+    Attributes of the resource being accessed:
+    
+    ```cedar
+    when {
+      resource.classification == "confidential" &&
+      resource.department == "Finance"
+    }
+    ```
+    
+    **Examples:**
+    - `resource.department`
+    - `resource.classification`
+    - `resource.owner`
+    - `resource.created_date`
+  </Tab>
+  
+  <Tab title="Relational Attributes">
+    Comparing principal and resource attributes:
+    
+    ```cedar
+    when {
+      principal.department == resource.department ||
+      principal.clearance_level > resource.required_clearance
+    }
+    ```
+    
+    **Examples:**
+    - Same department check
+    - Clearance level comparison
+    - Owner verification
+  </Tab>
+  
+  <Tab title="Context Attributes">
+    Environmental factors (not in current demo):
+    
+    ```cedar
+    when {
+      context.ip_address like "10.0.*" &&
+      context.time_of_day >= 9 &&
+      context.time_of_day <= 17
+    }
+    ```
+    
+    **Examples:**
+    - IP address
+    - Time of day
+    - Geographic location
+    - Device type
+  </Tab>
+</Tabs>
+
+### Common ABAC Patterns
+
+<Tabs>
+  <Tab title="Same Department">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+    
+    Users can only access resources in their department.
+  </Tab>
+  
+  <Tab title="Clearance Level">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.clearance_level >= 3 &&
+      resource.classification == "confidential"
+    };
+    ```
+    
+    Only users with high clearance can access confidential documents.
+  </Tab>
+  
+  <Tab title="Complex Conditions">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Edit",
+      resource
+    )
+    when {
+      (principal.department == resource.department &&
+       principal.clearance_level >= 2) ||
+      (principal.clearance_level >= 4)
+    };
+    ```
+    
+    Users can edit documents in their department if they have level 2+ clearance, OR any user with level 4+ clearance can edit any document.
+  </Tab>
+  
+  <Tab title="Negative Conditions">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    }
+    unless {
+      resource.classification == "top-secret"
+    };
+    ```
+    
+    Users can read documents in their department except top-secret ones.
+  </Tab>
+</Tabs>
+
+---
+
+## Hybrid: RBAC + ABAC
+
+The most powerful approach is combining RBAC and ABAC. This gives you the organizational clarity of roles with the flexibility of attribute-based rules.
+
+### Hybrid Example from Demo
+
+This policy uses both role membership and attribute comparison:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.department == resource.department
+};
+```
+
+**Breakdown:**
+- **RBAC part**: `principal in FinancialApp::Role::"Analyst"`
+  - Only Analysts get this permission
+- **ABAC part**: `principal.department == resource.department`
+  - But only for documents in their department
+
+**Result:** Role defines who gets the permission, attributes define when they can use it.
+
+### More Hybrid Patterns
+
+<Tabs>
+  <Tab title="Role + Clearance">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.clearance_level >= 2
+    };
+    ```
+    
+    Analysts with sufficient clearance can read. Combines role membership with attribute check.
+  </Tab>
+  
+  <Tab title="Role + Multiple Attributes">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Edit",
+      resource
+    )
+    when {
+      principal.department == resource.department &&
+      principal.clearance_level >= 2 &&
+      resource.classification != "restricted"
+    };
+    ```
+    
+    Analysts can edit documents in their department if they have clearance 2+ and the document isn't restricted.
+  </Tab>
+  
+  <Tab title="Multiple Roles + Attributes">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      (principal in FinancialApp::Role::"Analyst" &&
+       principal.department == resource.department) ||
+      (principal in FinancialApp::Role::"Auditor")
+    };
+    ```
+    
+    Analysts can read documents in their department, OR Auditors can read any document.
+  </Tab>
+</Tabs>
+
+---
+
+## Demo Scenario Breakdown
+
+Let's analyze each demo policy by RBAC/ABAC classification:
+
+<CardGroup cols={1}>
+  <Card title="Act 2: AllowAnalystReadOwnDepartment" icon="shield-halved">
+    **Type**: Hybrid (RBAC + ABAC)
+    
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",  // RBAC
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department  // ABAC
+    };
+    ```
+    
+    **RBAC**: Uses role to identify Analysts  
+    **ABAC**: Uses department attribute to limit scope  
+    **Benefit**: Clear role definition with fine-grained control
+  </Card>
+  
+  <Card title="Act 3: AllowAuditorReadAll" icon="users">
+    **Type**: Pure RBAC
+    
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",  // RBAC
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+    
+    **RBAC**: Only uses role membership  
+    **ABAC**: None  
+    **Benefit**: Simple, easy to understand and manage
+  </Card>
+  
+  <Card title="Act 4: ForbidAuditorModify" icon="users">
+    **Type**: Pure RBAC
+    
+    ```cedar
+    forbid (
+      principal in FinancialApp::Role::"Auditor",  // RBAC
+      action in [FinancialApp::Action::"Edit", FinancialApp::Action::"Delete"],
+      resource
+    );
+    ```
+    
+    **RBAC**: Only uses role membership  
+    **ABAC**: None  
+    **Benefit**: Clear restriction based on job function
+  </Card>
+</CardGroup>
+
+---
+
+## When to Use Each Pattern
+
+<Tabs>
+  <Tab title="Use RBAC When">
+    **Scenario 1: Simple organizational permissions**
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Admin",
+      action,
+      resource
+    );
+    ```
+    All admins get full access. No conditions needed.
+    
+    **Scenario 2: Job function permissions**
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+    Auditors need read access to do their job. Role defines capability.
+    
+    **When RBAC works best:**
+    - Permissions align with organizational roles
+    - Everyone in a role needs the same access
+    - Simple permission model
+    - Easy for non-technical stakeholders to understand
+  </Tab>
+  
+  <Tab title="Use ABAC When">
+    **Scenario 1: Data ownership**
+    ```cedar
+    permit (
+      principal,
+      action,
+      resource
+    )
+    when {
+      resource.owner == principal.id
+    };
+    ```
+    Users can manage resources they own.
+    
+    **Scenario 2: Dynamic conditions**
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department &&
+      resource.status == "active"
+    };
+    ```
+    Access depends on runtime attributes.
+    
+    **When ABAC works best:**
+    - Permissions depend on data attributes
+    - Need fine-grained, dynamic control
+    - Many users with varying access needs
+    - Business rules change frequently
+  </Tab>
+  
+  <Tab title="Use Hybrid When">
+    **Scenario 1: Role with constraints**
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+    Analysts have read permissions, but limited to their department.
+    
+    **Scenario 2: Multiple pathways**
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Edit",
+      resource
+    )
+    when {
+      (principal in FinancialApp::Role::"Editor" &&
+       principal.department == resource.department) ||
+      (resource.owner == principal.id) ||
+      (principal in FinancialApp::Role::"Admin")
+    };
+    ```
+    Multiple ways to get access: role + department, ownership, or admin.
+    
+    **When Hybrid works best:**
+    - Need both role clarity and fine-grained control
+    - Different access levels within roles
+    - Complex business requirements
+    - Most real-world applications
+  </Tab>
+</Tabs>
+
+---
+
+## Comparison Table
+
+| Aspect | RBAC | ABAC | Hybrid |
+|--------|------|------|--------|
+| **Complexity** | Low | High | Medium |
+| **Flexibility** | Low | High | High |
+| **Maintenance** | Easy | Complex | Medium |
+| **Scalability** | Role explosion | Scales well | Scales well |
+| **Performance** | Fast | Slightly slower | Medium |
+| **Auditability** | Easy | Complex | Medium |
+| **Business Alignment** | High | Medium | High |
+| **Best For** | Simple orgs | Dynamic rules | Most apps |
+
+---
+
+## Migration Path: RBAC → Hybrid → ABAC
+
+If you're starting with RBAC and want more flexibility:
+
+<Steps>
+  <Step title="Start with Pure RBAC">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+    
+    Begin with simple role-based policies. Get basic authorization working.
+  </Step>
+  
+  <Step title="Add Attribute Conditions">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+    
+    Add `when` clauses to existing policies. Now you have hybrid RBAC+ABAC.
+  </Step>
+  
+  <Step title="Introduce Pure ABAC">
+    ```cedar
+    permit (
+      principal,
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      resource.owner == principal.id
+    };
+    ```
+    
+    Add attribute-only policies for dynamic scenarios. Roles become optional.
+  </Step>
+  
+  <Step title="Mix and Match">
+    Use RBAC for coarse-grained permissions, ABAC for fine-grained control, and hybrid for most scenarios. Choose the right pattern for each use case.
+  </Step>
+</Steps>
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use roles for job functions, attributes for data access">
+    Roles should represent what someone does (Analyst, Admin, Auditor). Attributes should control what data they can access (department, clearance level).
+    
+    **Good:**
+    ```cedar
+    principal in FinancialApp::Role::"Analyst"  // Job function
+    when { principal.department == resource.department }  // Data access
+    ```
+    
+    **Avoid:**
+    Creating roles like "FinanceAnalyst", "HRAnalyst", "SalesAnalyst" - use one Analyst role + department attribute instead.
+  </Accordion>
+  
+  <Accordion title="Keep role hierarchies flat">
+    Cedar doesn't have built-in role hierarchy. Keep roles simple and use policies to define relationships.
+    
+    **Instead of:**
+    - Admin > Manager > Analyst (hierarchy)
+    
+    **Use:**
+    - Separate policies for each role
+    - Use attributes to distinguish levels
+  </Accordion>
+  
+  <Accordion title="Design attributes for reusability">
+    Attributes should be reusable across multiple policies.
+    
+    **Good:** `department`, `clearance_level`, `classification`  
+    **Avoid:** `can_read_finance_docs`, `is_senior_analyst` (too specific)
+  </Accordion>
+  
+  <Accordion title="Document the authorization model">
+    Clearly document which patterns you're using and why. Future maintainers will thank you.
+  </Accordion>
+  
+  <Accordion title="Start simple, add complexity as needed">
+    Begin with RBAC. Add ABAC only when you need it. Don't over-engineer from the start.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Policy Examples" icon="code" href="/policies/examples">
+    See complete RBAC, ABAC, and hybrid policies from the demo
+  </Card>
+  
+  <Card title="Schema Definition" icon="diagram-project" href="/policies/schema">
+    Review the entity types and attributes that enable RBAC and ABAC
+  </Card>
+  
+  <Card title="Policy Overview" icon="book" href="/policies/overview">
+    Learn Cedar policy language fundamentals
+  </Card>
+  
+  <Card title="Deploy Demo" icon="rocket" href="/quickstart">
+    Try RBAC and ABAC policies yourself in the live demo
+  </Card>
+</CardGroup>

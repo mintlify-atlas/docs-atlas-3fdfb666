@@ -1,0 +1,430 @@
+---
+title: Cedar Policy Examples
+description: Real-world Cedar policy examples from the AWS Verified Permissions demo scenarios
+---
+
+# Cedar Policy Examples
+
+This page contains all the Cedar policies used in the demo scenarios. Each policy demonstrates different authorization patterns and Cedar language features.
+
+## Demo Scenario Policies
+
+These policies correspond to the five acts in the live demo. You can copy and paste them directly into your AVP Policy Store.
+
+### Act 1: Zero Trust Default Deny
+
+In Act 1, we demonstrate Zero Trust by showing that Alice is denied access even with valid credentials when no policies exist.
+
+<Note>
+  **No policies yet!** This act demonstrates that AVP denies by default. Without any permit policies, all access requests return DENY.
+</Note>
+
+**Test Case:**
+- **Principal**: Alice Garcia (Analyst, Finance)
+- **Action**: Read
+- **Resource**: Q4-Report-2024 (Finance, confidential)
+- **Result**: 🚫 DENY (no matching policies)
+
+---
+
+### Act 2: Basic RBAC with Department Check
+
+This policy enables Analysts to read documents, but only within their own department.
+
+<Tabs>
+  <Tab title="Cedar Policy">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Explanation">
+    **Policy Name**: `AllowAnalystReadOwnDepartment`
+    
+    **What it does:**
+    - Allows users who are members of the Analyst role
+    - To perform the Read action
+    - On any Document resource
+    - **Only if** the user's department matches the document's department
+    
+    **Key Concepts:**
+    - `principal in Role::"Analyst"` - RBAC pattern (role membership check)
+    - `when { ... }` - ABAC pattern (attribute-based condition)
+    - Combines RBAC and ABAC for fine-grained control
+  </Tab>
+  
+  <Tab title="Test Cases">
+    **✅ Allowed:**
+    - Alice (Analyst, Finance) → Read → Q4-Report-2024 (Finance)
+      - ✅ Same department, Analyst role
+    
+    **🚫 Denied:**
+    - Alice (Analyst, Finance) → Read → HR-Payroll-2024 (HR)
+      - 🚫 Different department
+    - Carol (Auditor, HR) → Read → Q4-Report-2024 (Finance)
+      - 🚫 Not an Analyst role
+  </Tab>
+  
+  <Tab title="Code Reference">
+    This policy is created in the demo at `lambda/app.py:234` when demonstrating Act 2.
+    
+    Users are assigned to roles via the `parents` field:
+    ```python
+    "parents": [
+        {
+            "entityType": "FinancialApp::Role",
+            "entityId": "Analyst"
+        }
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### Act 3: Cross-Department Access for Auditors
+
+Auditors need to read documents across all departments for compliance purposes.
+
+<Tabs>
+  <Tab title="Cedar Policy">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+  </Tab>
+  
+  <Tab title="Explanation">
+    **Policy Name**: `AllowAuditorReadAll`
+    
+    **What it does:**
+    - Allows users who are members of the Auditor role
+    - To perform the Read action
+    - On **any** Document resource
+    - **No conditions** - full read access
+    
+    **Key Concepts:**
+    - Simple RBAC policy without conditions
+    - No `when` clause means no attribute restrictions
+    - Works across all departments
+  </Tab>
+  
+  <Tab title="Test Cases">
+    **✅ Allowed:**
+    - Carol (Auditor, HR) → Read → Q4-Report-2024 (Finance)
+      - ✅ Auditor can read any document
+    - Carol (Auditor, HR) → Read → HR-Payroll-2024 (HR)
+      - ✅ Auditor can read any document
+    - Carol (Auditor, HR) → Read → Sales-Dashboard (Sales)
+      - ✅ Auditor can read any document
+    
+    **🚫 Denied:**
+    - Carol (Auditor, HR) → Edit → Q4-Report-2024 (Finance)
+      - 🚫 Policy only allows Read, not Edit
+  </Tab>
+  
+  <Tab title="Combined Effect">
+    After adding this policy, **both** Act 2 and Act 3 policies are active:
+    
+    1. Analysts can read documents in their department (Act 2)
+    2. Auditors can read any document (Act 3)
+    
+    This shows how multiple policies work together in AVP.
+  </Tab>
+</Tabs>
+
+---
+
+### Act 4: Forbid Critical Actions
+
+Even Auditors shouldn't be able to modify or delete documents. Forbid policies enforce this.
+
+<Tabs>
+  <Tab title="Cedar Policy">
+    ```cedar
+    forbid (
+      principal in FinancialApp::Role::"Auditor",
+      action in [FinancialApp::Action::"Edit", FinancialApp::Action::"Delete"],
+      resource
+    );
+    ```
+  </Tab>
+  
+  <Tab title="Explanation">
+    **Policy Name**: `ForbidAuditorModify`
+    
+    **What it does:**
+    - Denies users who are members of the Auditor role
+    - From performing Edit or Delete actions
+    - On **any** Document resource
+    
+    **Key Concepts:**
+    - `forbid` effect - explicitly denies access
+    - `action in [...]` - matches multiple actions
+    - **Forbid always wins** over permit policies
+  </Tab>
+  
+  <Tab title="Test Cases">
+    **🚫 Denied:**
+    - Carol (Auditor, HR) → Edit → Q4-Report-2024 (Finance)
+      - 🚫 Forbid policy blocks Edit
+    - Carol (Auditor, HR) → Delete → HR-Payroll-2024 (HR)
+      - 🚫 Forbid policy blocks Delete
+    
+    **✅ Still Allowed:**
+    - Carol (Auditor, HR) → Read → Q4-Report-2024 (Finance)
+      - ✅ Read is not in the forbid list
+  </Tab>
+  
+  <Tab title="Precedence">
+    **Why forbid wins:**
+    
+    Even if you added this permit policy:
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",
+      action == FinancialApp::Action::"Edit",
+      resource
+    );
+    ```
+    
+    The forbid policy would **still block** Edit requests from Auditors. Forbid always takes precedence over permit.
+  </Tab>
+</Tabs>
+
+---
+
+## Additional Policy Patterns
+
+Here are more Cedar policies demonstrating advanced patterns you can use:
+
+### Admin Full Access
+
+Administrators can perform any action on any resource:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Admin",
+  action,
+  resource
+);
+```
+
+**Features:**
+- `action` without conditions matches **all** actions
+- `resource` without conditions matches **all** resources
+- Simple but powerful for admin roles
+
+---
+
+### Clearance Level Gating
+
+Restrict access based on security clearance:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.clearance_level >= 3 &&
+  resource.classification == "confidential"
+};
+```
+
+**Use Case:** Only Analysts with clearance level 3 or higher can read confidential documents.
+
+---
+
+### Block All Deletes on Confidential Documents
+
+Protect critical documents from deletion:
+
+```cedar
+forbid (
+  principal,
+  action == FinancialApp::Action::"Delete",
+  resource
+)
+when {
+  resource.classification == "confidential"
+};
+```
+
+**Features:**
+- `principal` without restrictions applies to **all users**
+- Even Admins cannot delete confidential documents
+- Ultimate data protection for critical resources
+
+---
+
+### Department-Based Edit Access
+
+Allow editing only within your department:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Edit",
+  resource
+)
+when {
+  principal.department == resource.department &&
+  principal.clearance_level >= 2
+};
+```
+
+**Use Case:** Analysts can edit documents in their department if they have sufficient clearance.
+
+---
+
+### Time-Based Access (Concept)
+
+While not in the current demo, Cedar can check context attributes like time:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  context.current_time >= context.business_hours_start &&
+  context.current_time <= context.business_hours_end
+};
+```
+
+<Warning>
+  This requires passing `context` data to AVP's `IsAuthorized` call. Not implemented in the current demo but shows Cedar's flexibility.
+</Warning>
+
+---
+
+## Policy Testing Matrix
+
+Here's a complete matrix showing which user can perform which action on which resource after all demo policies are applied:
+
+| User | Role | Document | Read | Edit | Delete |
+|------|------|----------|------|------|--------|
+| Alice | Analyst | Q4-Report-2024 (Finance) | ✅ Act 2 | 🚫 No policy | 🚫 No policy |
+| Alice | Analyst | HR-Payroll-2024 (HR) | 🚫 Dept mismatch | 🚫 No policy | 🚫 No policy |
+| Bob | Admin | Q4-Report-2024 (Finance) | ✅ (if admin policy added) | ✅ (if admin policy added) | ✅ (if admin policy added) |
+| Bob | Admin | HR-Payroll-2024 (HR) | ✅ (if admin policy added) | ✅ (if admin policy added) | ✅ (if admin policy added) |
+| Carol | Auditor | Q4-Report-2024 (Finance) | ✅ Act 3 | 🚫 Act 4 forbid | 🚫 Act 4 forbid |
+| Carol | Auditor | HR-Payroll-2024 (HR) | ✅ Act 3 | 🚫 Act 4 forbid | 🚫 Act 4 forbid |
+| Carol | Auditor | Sales-Dashboard (Sales) | ✅ Act 3 | 🚫 Act 4 forbid | 🚫 Act 4 forbid |
+
+---
+
+## Policy Creation Tips
+
+<AccordionGroup>
+  <Accordion title="Name your policies descriptively">
+    In the AVP console, give each policy a clear name:
+    - ✅ `AllowAnalystReadOwnDepartment`
+    - ✅ `ForbidAuditorModify`
+    - ❌ `Policy1`
+    - ❌ `test-policy`
+  </Accordion>
+  
+  <Accordion title="Test incrementally">
+    Add one policy at a time and test it before adding the next. This makes debugging easier.
+  </Accordion>
+  
+  <Accordion title="Use the AVP console policy editor">
+    The AVP console provides syntax highlighting and validation. It will catch typos and schema violations before you save.
+  </Accordion>
+  
+  <Accordion title="Start with permit, add forbid later">
+    Get your permit policies working first. Then add forbid policies to enforce restrictions. This follows the principle of starting permissive and adding restrictions.
+  </Accordion>
+  
+  <Accordion title="Use the Cedar Playground">
+    Test policies offline at [cedarpolicy.com/playground](https://www.cedarpolicy.com/en/playground) before deploying to AVP.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Policy vs Code Comparison
+
+One of the key benefits of Cedar is **separating authorization from code**. Here's what the same logic would look like in code:
+
+<Tabs>
+  <Tab title="Cedar Policy">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+    
+    **Lines of code:** 7  
+    **Deployment needed:** No (change takes effect immediately)  
+    **Who can change:** Security team via AVP console
+  </Tab>
+  
+  <Tab title="Python Code">
+    ```python
+    def check_access(user, action, resource):
+        # Check if user is an Analyst
+        if user['role'] != 'Analyst':
+            return False
+        
+        # Check if action is Read
+        if action != 'Read':
+            return False
+        
+        # Check if departments match
+        if user['department'] != resource['department']:
+            return False
+        
+        return True
+    ```
+    
+    **Lines of code:** 12  
+    **Deployment needed:** Yes (code deployment + testing)  
+    **Who can change:** Developers with code access
+  </Tab>
+</Tabs>
+
+<Info>
+  With Cedar, you can update authorization rules **without deploying code**. Security teams can adjust policies in real-time through the AVP console.
+</Info>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RBAC vs ABAC" icon="shield" href="/policies/rbac-abac">
+    Learn the difference between role-based and attribute-based access control
+  </Card>
+  
+  <Card title="Schema Definition" icon="diagram-project" href="/policies/schema">
+    Review the schema that makes these policies possible
+  </Card>
+  
+  <Card title="Deploy the Demo" icon="rocket" href="/quickstart">
+    Try these policies yourself in the live demo
+  </Card>
+  
+  <Card title="Cedar Playground" icon="play" href="https://www.cedarpolicy.com/en/playground">
+    Experiment with Cedar policies in your browser
+  </Card>
+</CardGroup>

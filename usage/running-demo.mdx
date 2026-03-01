@@ -1,0 +1,184 @@
+---
+title: "Running the Demo"
+description: "Start the local server and access the AWS Verified Permissions demo frontend"
+---
+
+<Info>
+  **Prerequisites**:
+  - Complete deployment via SAM (see Setup documentation)
+  - API Gateway URL from deployment outputs
+  - Python 3.11+ installed locally
+</Info>
+
+## Configure the Frontend
+
+Before starting the server, you need to update the frontend files with your API Gateway URL from the SAM deployment outputs.
+
+<Steps>
+<Step title="Locate your API URL">
+
+After running `sam deploy`, the outputs will display your API Gateway URL:
+
+```bash
+Outputs
+-------
+ApiUrl        = https://XXXXXXXX.execute-api.us-west-2.amazonaws.com/prod
+AgentEndpoint = https://XXXXXXXX.execute-api.us-west-2.amazonaws.com/prod/agent
+```
+
+Copy the `ApiUrl` value for the next step.
+
+</Step>
+
+<Step title="Update index.html">
+
+Open `frontend/index.html` in your editor and locate line ~837:
+
+```javascript
+const API_BASE_URL = "https://XXXXXXXX.execute-api.us-west-2.amazonaws.com/prod";
+```
+
+Replace the URL with your actual API Gateway URL.
+
+<Warning>
+  The URL must end with `/prod` — do not add additional paths.
+</Warning>
+
+</Step>
+
+<Step title="Update avp-agent.html">
+
+Open `frontend/avp-agent.html` and locate line ~237:
+
+```javascript
+const API_BASE = "https://XXXXXXXX.execute-api.us-west-2.amazonaws.com/prod";
+```
+
+Replace with the same API Gateway URL.
+
+</Step>
+</Steps>
+
+## Start the Local Server
+
+The demo uses Python's built-in HTTP server to serve the frontend files.
+
+<Steps>
+<Step title="Navigate to frontend directory">
+
+```bash
+cd avp-demo/frontend
+```
+
+</Step>
+
+<Step title="Start the HTTP server">
+
+```bash
+python3 -m http.server 8000
+```
+
+You should see output similar to:
+
+```
+Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+```
+
+</Step>
+</Steps>
+
+## Access the Demo Interfaces
+
+With the server running, open your browser to access the different demo interfaces:
+
+<CardGroup cols={2}>
+
+<Card title="Main Demo" icon="shield-check" href="http://localhost:8000/index.html">
+  Primary AVP authorization demo with interactive UI
+</Card>
+
+<Card title="AI Agent" icon="robot" href="http://localhost:8000/avp-agent.html">
+  Natural language queries with AI-powered AVP access checks
+</Card>
+
+</CardGroup>
+
+### Demo Interface URLs
+
+| URL | Description | Requirements |
+|-----|-------------|-------------|
+| `http://localhost:8000/index.html` | Main AVP lab | Policy Store ID |
+| `http://localhost:8000/avp-agent.html` | AI agent with natural language | Anthropic API Key in SAM deployment |
+| `http://localhost:8000/avp-level3-concept.html` | Level 3 concept demo | Anthropic API Key entered in UI |
+
+<Warning>
+  **Do not open files with `file://` protocol**
+  
+  The browser will block API calls due to CORS restrictions. Always use `http://localhost:8000` to access the demo.
+</Warning>
+
+## Initial Configuration
+
+When you first open the main demo interface:
+
+<Steps>
+<Step title="Enter Policy Store ID">
+
+In the configuration section at the top of the page, enter your AWS Verified Permissions Policy Store ID.
+
+You can find this ID in the AWS Console under **Verified Permissions** > Your Policy Store.
+
+</Step>
+
+<Step title="Verify connection">
+
+The configuration status indicator should show a connection to your backend API.
+
+</Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="API calls returning CORS errors">
+    Make sure you're accessing the demo via `http://localhost:8000` and not opening files directly with `file://` protocol. The browser blocks cross-origin requests from local file URLs.
+  </Accordion>
+
+  <Accordion title="404 errors when checking access">
+    Verify that:
+    - Your API Gateway URL is correctly configured in both HTML files
+    - The URL ends with `/prod` without additional paths
+    - Your Lambda functions are deployed and accessible
+    
+    Test the API directly:
+    ```bash
+    curl https://YOUR-API-URL/prod/users
+    ```
+  </Accordion>
+
+  <Accordion title="Port 8000 already in use">
+    If port 8000 is occupied, use a different port:
+    ```bash
+    python3 -m http.server 3333
+    ```
+    Then access the demo at `http://localhost:3333/index.html`
+  </Accordion>
+
+  <Accordion title="AI agent not responding">
+    The AI agent requires:
+    - A valid Anthropic API Key configured during SAM deployment
+    - The API Key must have available credits (minimum $5)
+    - If you used `placeholder` during deployment, the agent will not work
+    
+    Redeploy with a valid API Key:
+    ```bash
+    sam deploy --parameter-overrides AnthropicApiKey=sk-ant-your-key
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Demo Scenarios" icon="film" href="/usage/demo-scenarios">
+  Follow the 5-act demo flow to explore Zero Trust, Cedar policies, ABAC, and forbid precedence
+</Card>

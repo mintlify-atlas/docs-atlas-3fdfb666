@@ -1,80 +1,518 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart guide
+description: Step-by-step guide to deploy the AWS Verified Permissions demo and run your first authorization check
 ---
 
-## Get started in three steps
+This guide will walk you through deploying the complete demo in under 15 minutes.
 
-Get your documentation site running locally and make your first customization.
+## Step 1: Create the Policy Store
 
-### Step 1: Set up your local environment
+AWS Verified Permissions stores your authorization policies in a Policy Store. You'll create this manually in the AWS Console.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Steps>
+  <Step title="Open AWS Verified Permissions console">
+    Navigate to the AWS Console and search for **"Verified Permissions"** in the services search bar.
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    <Note>
+      Make sure you're in the same AWS region where you'll deploy the Lambda functions (e.g., `us-west-2`).
+    </Note>
+  </Step>
+  
+  <Step title="Create a new Policy Store">
+    Click **"Create policy store"**
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    <Warning>
+      Select **"Empty policy store"** - do NOT use the "Guided setup" option. The guided setup creates a different schema structure.
+    </Warning>
+  </Step>
+  
+  <Step title="Configure the Policy Store">
+    - **Policy store name:** `FinancialDocsStore`
+    - **Validation mode:** Schema-based (default)
+    - Click **"Create"**
+  </Step>
+  
+  <Step title="Copy the Policy Store ID">
+    After creation, you'll see the Policy Store dashboard. Copy the **Policy Store ID** (format: `PSEXAMPLEabcdefg12345678`).
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Note>
+      Save this ID - you'll need it in Step 3 for the SAM deployment.
+    </Note>
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Step 2: Define the schema
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+The schema defines the structure of your entities (users, resources) and their attributes.
 
-### Step 3: Go live
+<Steps>
+  <Step title="Open the Schema editor">
+    In your Policy Store dashboard, navigate to **Schema** → **Edit**
+  </Step>
+  
+  <Step title="Replace with the FinancialApp schema">
+    Delete any existing content and paste this complete schema:
+    
+    ```json
+    {
+        "FinancialApp": {
+            "entityTypes": {
+                "User": {
+                    "shape": {
+                        "type": "Record",
+                        "attributes": {
+                            "department": {
+                                "type": "String",
+                                "required": true
+                            },
+                            "clearance_level": {
+                                "type": "Long",
+                                "required": true
+                            }
+                        }
+                    },
+                    "memberOfTypes": ["Role"]
+                },
+                "Document": {
+                    "shape": {
+                        "type": "Record",
+                        "attributes": {
+                            "classification": {
+                                "type": "String",
+                                "required": true
+                            },
+                            "department": {
+                                "type": "String",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "Role": {
+                    "memberOfTypes": []
+                }
+            },
+            "actions": {
+                "Read": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                },
+                "Edit": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                },
+                "Delete": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                }
+            }
+        }
+    }
+    ```
+    
+    <Warning>
+      The `"memberOfTypes": ["Role"]` field in the User entity is critical. It tells AVP that a User can belong to a Role, which is necessary for Cedar to evaluate `principal in Role::"Analyst"`.
+    </Warning>
+  </Step>
+  
+  <Step title="Save the schema">
+    Click **"Save changes"**
+    
+    The console will validate your schema. If there are any errors, double-check that you copied the entire JSON correctly.
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Step 3: Build and deploy with SAM
+
+Now you'll use AWS SAM to build and deploy the Lambda functions and API Gateway.
+
+<Steps>
+  <Step title="Navigate to the project directory">
+    ```bash
+    cd ~/workspace/source/
+    ```
+  </Step>
+  
+  <Step title="Build the SAM application">
+    ```bash
+    sam build
+    ```
+    
+    This command packages your Lambda functions and their dependencies. You should see output like:
+    
+    ```
+    Build Succeeded
+    
+    Built Artifacts  : .aws-sam/build
+    Built Template   : .aws-sam/build/template.yaml
+    ```
+  </Step>
+  
+  <Step title="Deploy with guided mode">
+    ```bash
+    sam deploy --guided
+    ```
+    
+    SAM will ask you several configuration questions. Use these answers:
+    
+    | Question | Your answer |
+    |----------|-------------|
+    | Stack Name | `avp-demo` |
+    | AWS Region | `us-west-2` (or your preferred region) |
+    | Parameter PolicyStoreId | Paste the ID from Step 1 |
+    | Parameter AnthropicApiKey | Your `sk-ant-...` key (or `placeholder`) |
+    | Confirm changes before deploy | `y` |
+    | Allow SAM CLI to create IAM roles | `y` |
+    | Disable rollback | `n` |
+    | CheckAccessFunction has no authentication | `y` |
+    | GetUsersFunction has no authentication | `y` |
+    | AgentFunction has no authentication | `y` |
+    | Save arguments to configuration file | `y` |
+    | SAM configuration file | Press ENTER (uses `samconfig.toml`) |
+    | SAM configuration environment | Press ENTER (uses `default`) |
+    | Deploy this changeset? | `y` |
+    
+    <Note>
+      If you don't plan to use the AI agent, enter `placeholder` as the Anthropic API key. The main demo will work without it.
+    </Note>
+  </Step>
+  
+  <Step title="Copy the API URL">
+    After successful deployment, SAM will display the outputs:
+    
+    ```
+    Outputs
+    -------
+    ApiUrl        = https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod
+    AgentEndpoint = https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod/agent
+    ```
+    
+    **Copy the `ApiUrl` value** - you'll need it in the next step.
+  </Step>
+</Steps>
+
+## Step 4: Configure the frontend
+
+The frontend HTML files need to know your API Gateway URL.
+
+<Steps>
+  <Step title="Open index.html">
+    Open `~/workspace/source/frontend/index.html` in your code editor.
+  </Step>
+  
+  <Step title="Update the API URL">
+    Find line ~837 and replace the placeholder URL with your API URL from Step 3:
+    
+    ```javascript
+    const API_BASE_URL = "https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+    
+    <Warning>
+      The URL must end with `/prod` - do not add any additional paths like `/check-access`.
+    </Warning>
+  </Step>
+  
+  <Step title="Update avp-agent.html (if using AI agent)">
+    If you provided an Anthropic API key, also update `~/workspace/source/frontend/avp-agent.html` at line ~237:
+    
+    ```javascript
+    const API_BASE = "https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+  </Step>
+</Steps>
+
+## Step 5: Run the demo locally
+
+Start a local web server to access the frontend.
+
+<Steps>
+  <Step title="Navigate to the frontend directory">
+    ```bash
+    cd ~/workspace/source/frontend
+    ```
+  </Step>
+  
+  <Step title="Start the web server">
+    ```bash
+    python3 -m http.server 8000
+    ```
+    
+    You should see:
+    ```
+    Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+    ```
+  </Step>
+  
+  <Step title="Open in your browser">
+    Navigate to one of these URLs:
+    
+    | URL | Description |
+    |-----|-------------|
+    | `http://localhost:8000/index.html` | Main AVP demo lab |
+    | `http://localhost:8000/avp-agent.html` | AI agent with natural language |
+    | `http://localhost:8000/avp-level3-concept.html` | Level 3 concept demo |
+    
+    <Warning>
+      Do NOT open the files using `file://` protocol. The browser will block API calls due to CORS. Always use `http://localhost:8000`.
+    </Warning>
+  </Step>
+</Steps>
+
+## Demo walkthrough
+
+Now that everything is deployed, let's run through the core demo scenarios.
+
+### Act 1: Zero Trust (deny by default)
+
+<Steps>
+  <Step title="Enter your Policy Store ID">
+    In the web interface, paste your Policy Store ID in the configuration field.
+  </Step>
+  
+  <Step title="Test Alice's access">
+    - Select user: **Alice Garcia** (Analyst, Finance)
+    - Select resource: **Q4-Report-2024**
+    - Select action: **Read**
+    - Click **Check Access**
+    
+    **Result:** 🚫 **DENY**
+    
+    This demonstrates Zero Trust: even though Alice has valid credentials and works in Finance (same department as the document), AVP denies access because no policy explicitly permits it.
+  </Step>
+</Steps>
+
+### Act 2: Cedar policy in action
+
+<Steps>
+  <Step title="Create your first policy">
+    Go to AWS Console → Verified Permissions → Your Policy Store → **Policies** → **Create** → **Static policy**
+    
+    **Policy name:** `AllowAnalystReadOwnDepartment`
+    
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department
+    };
+    ```
+    
+    This policy allows users in the Analyst role to Read documents, but only if the user's department matches the document's department (ABAC condition).
+  </Step>
+  
+  <Step title="Test Alice again">
+    Repeat the same request:
+    - User: **Alice Garcia**
+    - Resource: **Q4-Report-2024**  
+    - Action: **Read**
+    
+    **Result:** ✅ **ALLOW**
+    
+    <Note>
+      You didn't change any code. You didn't redeploy. You just added a Cedar policy, and it took effect immediately.
+    </Note>
+  </Step>
+</Steps>
+
+### Act 3: Attribute-based access control
+
+<Steps>
+  <Step title="Test cross-department access">
+    - User: **Carol Mendez** (Auditor, HR)
+    - Resource: **Q4-Report-2024** (Finance department)
+    - Action: **Read**
+    
+    **Result:** 🚫 **DENY**
+    
+    Carol is denied because her department (HR) doesn't match the document's department (Finance), even though she's an Auditor.
+  </Step>
+  
+  <Step title="Create an Auditor policy">
+    Create a new policy that allows Auditors to read any document:
+    
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Auditor",
+      action == FinancialApp::Action::"Read",
+      resource
+    );
+    ```
+  </Step>
+  
+  <Step title="Test Carol again">
+    Same request as before:
+    
+    **Result:** ✅ **ALLOW**
+    
+    Now Carol can access the Finance document because her Auditor role grants cross-department read access.
+  </Step>
+</Steps>
+
+### Act 4: Forbid overrides permit
+
+<Steps>
+  <Step title="Add a forbid policy">
+    Create this policy to block Auditors from editing or deleting:
+    
+    ```cedar
+    forbid (
+      principal in FinancialApp::Role::"Auditor",
+      action in [FinancialApp::Action::"Edit", FinancialApp::Action::"Delete"],
+      resource
+    );
+    ```
+  </Step>
+  
+  <Step title="Test Carol's edit access">
+    - User: **Carol Mendez**
+    - Resource: **Q4-Report-2024**
+    - Action: **Edit**
+    
+    **Result:** 🚫 **DENY**
+    
+    Even if you created a `permit` policy for Edit, the `forbid` would win. In Cedar, `forbid` always takes precedence over `permit`.
+  </Step>
+</Steps>
+
+### Act 5 (Bonus): AI agent
+
+<Note>
+  This requires an Anthropic API key. Skip this if you used `placeholder` during deployment.
+</Note>
+
+<Steps>
+  <Step title="Open the AI agent interface">
+    Navigate to `http://localhost:8000/avp-agent.html`
+  </Step>
+  
+  <Step title="Ask a natural language question">
+    Type in the chat:
+    
+    > "Check access for all users to Q4-Report-2024 for Read action"
+    
+    The AI agent will:
+    1. Understand your request
+    2. Make multiple calls to the AVP `check_avp_access` tool
+    3. Summarize the results in natural language
+    
+    All without you having to specify the exact API calls or structure.
+  </Step>
+</Steps>
+
+## Understanding the Lambda code
+
+The core authorization logic lives in `lambda/app.py`. Here's how it works:
+
+<CodeGroup>
+```python lambda/app.py (IsAuthorized call)
+avp_response = avp_client.is_authorized(
+    policyStoreId=POLICY_STORE_ID,
+    principal={
+        "entityType": "FinancialApp::User",
+        "entityId":    user_id
+    },
+    action={
+        "actionType": "FinancialApp::Action",
+        "actionId":    action_id
+    },
+    resource={
+        "entityType": "FinancialApp::Document",
+        "entityId":    resource_id
+    },
+    entities={
+        "entityList": build_entity_list(user_id, resource_id)
+    }
+)
+
+decision = avp_response["decision"]  # "ALLOW" or "DENY"
+```
+
+```python lambda/app.py (Building entity context)
+def build_entity_list(user_id: str, resource_id: str) -> list:
+    user = DEMO_USERS[user_id]
+    resource = DEMO_RESOURCES[resource_id]
+
+    entities = [
+        # User entity with attributes
+        {
+            "identifier": {
+                "entityType": "FinancialApp::User",
+                "entityId": user_id
+            },
+            "attributes": {
+                "department":      {"string": user["department"]},
+                "clearance_level": {"long":   user["clearance_level"]},
+            },
+            "parents": [
+                {
+                    "entityType": "FinancialApp::Role",
+                    "entityId": user["role"]
+                }
+            ]
+        },
+        # Resource entity with attributes
+        {
+            "identifier": {
+                "entityType": "FinancialApp::Document",
+                "entityId": resource_id
+            },
+            "attributes": {
+                "department":      {"string": resource["department"]},
+                "classification":  {"string": resource["classification"]},
+            }
+        }
+    ]
+    return entities
+```
+</CodeGroup>
+
+The `build_entity_list` function provides AVP with the full context needed to evaluate Cedar policies, including user attributes, role membership, and resource properties.
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Learn Cedar policy language" icon="book" href="https://www.cedarpolicy.com/en/playground">
+    Practice writing Cedar policies in the interactive playground
+  </Card>
+  
+  <Card title="AWS Verified Permissions docs" icon="aws" href="https://docs.aws.amazon.com/verifiedpermissions/">
+    Explore the official AVP documentation
+  </Card>
+  
+  <Card title="AVP Workshop" icon="laptop-code" href="https://catalog.workshops.aws/verified-permissions">
+    Take the official AWS workshop on Verified Permissions
+  </Card>
+  
+  <Card title="Cedar on GitHub" icon="github" href="https://github.com/cedar-policy/cedar">
+    Explore the open-source Cedar policy engine
+  </Card>
 </CardGroup>
 
+## Cleanup
+
+When you're done with the demo, remove all AWS resources to avoid charges:
+
+```bash
+# Delete the CloudFormation stack (Lambdas and API Gateway)
+sam delete --stack-name avp-demo
+```
+
+Then manually delete the Policy Store:
+
+1. Go to AWS Console → Verified Permissions
+2. Select your `FinancialDocsStore`
+3. Click **Delete**
+4. Confirm deletion
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The demo uses serverless resources that scale to zero when not in use, so costs are minimal. However, it's good practice to clean up resources you're not using.
 </Note>

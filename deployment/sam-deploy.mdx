@@ -1,0 +1,347 @@
+---
+title: SAM Deployment
+description: Build and deploy the backend infrastructure using AWS SAM
+---
+
+AWS SAM (Serverless Application Model) automates the deployment of Lambda functions, API Gateway, and IAM roles. This page walks you through the build and deployment process.
+
+## Template Overview
+
+The `template.yaml` file defines the following resources:
+
+### Parameters
+
+| Parameter | Type | Description | Required |
+|-----------|------|-------------|----------|
+| `PolicyStoreId` | String | ID of your AVP policy store | Yes |
+| `AnthropicApiKey` | String (NoEcho) | API key for Anthropic Claude | Yes* |
+
+<Note>
+  *If you don't plan to use the AI agent feature (`avp-agent.html`), you can enter `placeholder` for the `AnthropicApiKey`. The main lab (`index.html`) does not require the Anthropic API.
+</Note>
+
+### Resources Deployed
+
+#### API Gateway
+
+```yaml
+AVPDemoApi:
+  Type: AWS::Serverless::Api
+  Properties:
+    Name: avp-demo-api
+    StageName: prod
+    Cors:
+      AllowMethods: "'POST,GET,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+      AllowOrigin: "'*'"
+```
+
+- **Stage**: `prod`
+- **CORS**: Enabled for local development (allows requests from `localhost:8000`)
+- **Endpoints**: `/check-access`, `/users`, `/agent`
+
+#### Lambda: Check Access
+
+```yaml
+CheckAccessFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-check-access
+    CodeUri: lambda/
+    Handler: app.lambda_handler
+    Runtime: python3.11
+    Timeout: 30
+    Policies:
+      - Statement:
+          - Effect: Allow
+            Action: verifiedpermissions:IsAuthorized
+            Resource: "*"
+```
+
+- **Purpose**: Calls AVP's `IsAuthorized` API to check if a user can perform an action on a resource
+- **Endpoint**: `POST /check-access`
+- **Source**: `lambda/app.py:lambda_handler`
+
+#### Lambda: Get Users
+
+```yaml
+GetUsersFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-get-users
+    CodeUri: lambda/
+    Handler: users.lambda_handler
+    Runtime: python3.11
+```
+
+- **Purpose**: Returns hardcoded demo users and documents for the UI
+- **Endpoint**: `GET /users`
+- **Source**: `lambda/users.py:lambda_handler`
+
+#### Lambda: AI Agent
+
+```yaml
+AgentFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-agent
+    CodeUri: lambda/
+    Handler: agent.lambda_handler
+    Runtime: python3.11
+    Timeout: 60
+    Environment:
+      Variables:
+        POLICY_STORE_ID: !Ref PolicyStoreId
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+```
+
+- **Purpose**: Secure proxy to Anthropic API — AI agent that queries AVP using natural language
+- **Endpoint**: `POST /agent`
+- **Source**: `lambda/agent.py:lambda_handler`
+- **Timeout**: 60 seconds (longer than other functions to handle AI processing)
+
+<Warning>
+  The `ANTHROPIC_API_KEY` is stored as an encrypted environment variable in Lambda. It is never exposed to the frontend.
+</Warning>
+
+### Outputs
+
+After deployment, SAM outputs the following values:
+
+```yaml
+Outputs:
+  ApiUrl:
+    Description: "URL del API Gateway - usala en el frontend"
+    Value: !Sub "https://${AVPDemoApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  
+  AgentEndpoint:
+    Description: "Endpoint del agente IA"
+    Value: !Sub "https://${AVPDemoApi}.execute-api.${AWS::Region}.amazonaws.com/prod/agent"
+```
+
+You'll use the `ApiUrl` to configure the frontend in the next step.
+
+## Build and Deploy
+
+<Steps>
+  <Step title="Navigate to project directory">
+    ```bash
+    cd ~/workspace/source/
+    ```
+  </Step>
+
+  <Step title="Build the SAM application">
+    ```bash
+    sam build
+    ```
+    
+    This command:
+    - Validates the `template.yaml` syntax
+    - Installs Python dependencies from `lambda/requirements.txt`
+    - Packages Lambda function code
+    - Creates a `.aws-sam/` directory with build artifacts
+    
+    Expected output:
+    ```
+    Building codeuri: lambda/ runtime: python3.11
+    Running PythonPipBuilder:ResolveDependencies
+    Running PythonPipBuilder:CopySource
+    
+    Build Succeeded
+    
+    Built Artifacts  : .aws-sam/build
+    Built Template   : .aws-sam/build/template.yaml
+    ```
+  </Step>
+
+  <Step title="Deploy with guided mode">
+    ```bash
+    sam deploy --guided
+    ```
+    
+    The `--guided` flag walks you through an interactive deployment wizard.
+  </Step>
+
+  <Step title="Answer deployment prompts">
+    SAM will ask a series of questions. Use the following answers:
+    
+    <Warning>
+      Make sure you have your **Policy Store ID** from the previous step ready!
+    </Warning>
+    
+    | Prompt | Answer | Notes |
+    |--------|--------|-------|
+    | **Stack Name** | `avp-demo` | CloudFormation stack name |
+    | **AWS Region** | `us-west-2` | Or your preferred region where AVP is available |
+    | **Parameter PolicyStoreId** | `PS1a2b3c4d5e6f7g8h9i0` | Paste your actual Policy Store ID |
+    | **Parameter AnthropicApiKey** | `sk-ant-...` or `placeholder` | Your Anthropic API key, or `placeholder` if not using AI agent |
+    | **Confirm changes before deploy** | `y` | Review changes before applying |
+    | **Allow SAM CLI to create IAM roles** | `y` | Required for Lambda execution roles |
+    | **Disable rollback** | `n` | Keep rollback enabled for safety |
+    | **CheckAccessFunction has no authentication. Is this okay?** | `y` | Intentional for demo purposes |
+    | **GetUsersFunction has no authentication. Is this okay?** | `y` | Intentional for demo purposes |
+    | **AgentFunction has no authentication. Is this okay?** | `y` | Intentional for demo purposes |
+    | **Save arguments to configuration file** | `y` | Saves settings to `samconfig.toml` for future deploys |
+    | **SAM configuration file** | *(press ENTER)* | Uses default `samconfig.toml` |
+    | **SAM configuration environment** | *(press ENTER)* | Uses default environment |
+    
+    <Warning>
+      The Lambda functions intentionally have no authentication for demo purposes. In a production application, you should implement API Gateway authorization (API keys, Cognito, IAM, etc.).
+    </Warning>
+  </Step>
+
+  <Step title="Review and confirm deployment">
+    SAM will show a changeset preview:
+    ```
+    Changeset created successfully
+    
+    CloudFormation stack changeset
+    --------------------------------------------------
+    Operation    LogicalResourceId              ResourceType
+    --------------------------------------------------
+    + Add        AVPDemoApi                     AWS::Serverless::Api
+    + Add        CheckAccessFunction            AWS::Serverless::Function
+    + Add        GetUsersFunction               AWS::Serverless::Function
+    + Add        AgentFunction                  AWS::Serverless::Function
+    + Add        CheckAccessFunctionRole        AWS::IAM::Role
+    + Add        GetUsersFunctionRole           AWS::IAM::Role
+    + Add        AgentFunctionRole              AWS::IAM::Role
+    ...
+    --------------------------------------------------
+    ```
+    
+    When prompted:
+    ```
+    Deploy this changeset? [y/N]:
+    ```
+    
+    Type `y` and press ENTER to proceed.
+  </Step>
+
+  <Step title="Wait for deployment to complete">
+    SAM will create the CloudFormation stack and deploy all resources. This takes 2-3 minutes.
+    
+    You'll see progress updates:
+    ```
+    Deploying with following values
+    ===============================
+    Stack name                   : avp-demo
+    Region                       : us-west-2
+    Confirm changeset            : True
+    ...
+    
+    CloudFormation events from stack operations
+    --------------------------------------------------
+    ResourceStatus           ResourceType              LogicalResourceId
+    --------------------------------------------------
+    CREATE_IN_PROGRESS       AWS::CloudFormation::Stack avp-demo
+    CREATE_IN_PROGRESS       AWS::IAM::Role             CheckAccessFunctionRole
+    CREATE_COMPLETE          AWS::IAM::Role             CheckAccessFunctionRole
+    CREATE_IN_PROGRESS       AWS::Lambda::Function      CheckAccessFunction
+    ...
+    CREATE_COMPLETE          AWS::CloudFormation::Stack avp-demo
+    --------------------------------------------------
+    ```
+  </Step>
+
+  <Step title="Copy the API URL from outputs">
+    <Warning>
+      Save the `ApiUrl` output — you'll need it to configure the frontend!
+    </Warning>
+    
+    When deployment completes, you'll see:
+    ```
+    CloudFormation outputs from deployed stack
+    --------------------------------------------------
+    Outputs
+    --------------------------------------------------
+    Key                 ApiUrl
+    Description         URL del API Gateway - usala en el frontend
+    Value               https://abc123def4.execute-api.us-west-2.amazonaws.com/prod
+    
+    Key                 AgentEndpoint
+    Description         Endpoint del agente IA
+    Value               https://abc123def4.execute-api.us-west-2.amazonaws.com/prod/agent
+    --------------------------------------------------
+    
+    Successfully created/updated stack - avp-demo in us-west-2
+    ```
+    
+    Copy the `ApiUrl` value to your clipboard or a text file.
+  </Step>
+</Steps>
+
+## Verify Deployment
+
+You can verify your deployment in several ways:
+
+### AWS Console
+
+1. **CloudFormation**: Check the stack status at https://console.aws.amazon.com/cloudformation
+   - Stack should show `CREATE_COMPLETE` status
+   - Verify all resources were created successfully
+
+2. **Lambda**: Check your functions at https://console.aws.amazon.com/lambda
+   - You should see three functions: `avp-check-access`, `avp-get-users`, `avp-agent`
+
+3. **API Gateway**: Check your API at https://console.aws.amazon.com/apigateway
+   - You should see `avp-demo-api` with the `prod` stage deployed
+
+### CLI Commands
+
+```bash
+# Check stack status
+aws cloudformation describe-stacks --stack-name avp-demo --query 'Stacks[0].StackStatus'
+
+# List stack outputs
+aws cloudformation describe-stacks --stack-name avp-demo --query 'Stacks[0].Outputs'
+
+# Test the /users endpoint
+curl https://YOUR_API_URL/users
+```
+
+The `/users` endpoint should return JSON with demo users and documents.
+
+## Redeploying Changes
+
+If you make changes to the Lambda code or `template.yaml`, redeploy with:
+
+```bash
+sam build
+sam deploy  # No --guided flag needed, uses saved config
+```
+
+SAM will use the settings saved in `samconfig.toml` from your initial deployment.
+
+## Troubleshooting
+
+### Build Failures
+
+**Error**: `Build Failed: PythonPipBuilder:ResolveDependencies`
+
+- **Solution**: Ensure Python 3.11+ is installed: `python3 --version`
+- Check that `lambda/requirements.txt` exists and dependencies are available
+
+### Deployment Failures
+
+**Error**: `Unable to upload artifact... Access Denied`
+
+- **Solution**: Ensure your AWS credentials have permissions to create S3 buckets, Lambda functions, and IAM roles
+
+**Error**: `Policy Store ID is invalid`
+
+- **Solution**: Verify you copied the correct Policy Store ID from the AVP console. It should start with `PS`.
+
+### Runtime Errors
+
+**Error**: `User: arn:aws:iam::... is not authorized to perform: verifiedpermissions:IsAuthorized`
+
+- **Solution**: The Lambda execution role should have been created automatically. Check the IAM role permissions in the AWS console.
+
+## Next Steps
+
+With your backend deployed, configure the frontend to connect to your API:
+
+<Card title="Configure Frontend" icon="code" href="/deployment/frontend-config">
+  Update HTML files with your API Gateway URL
+</Card>

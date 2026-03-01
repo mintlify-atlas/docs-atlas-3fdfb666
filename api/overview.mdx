@@ -1,0 +1,110 @@
+---
+title: 'API Overview'
+description: 'Complete API reference for the AWS Verified Permissions demo application'
+---
+
+The AVP Demo API provides endpoints for authorization checking, user management, and AI-powered policy queries. All endpoints are deployed as AWS Lambda functions behind API Gateway.
+
+## Base URL
+
+Your API Gateway base URL will be provided after deployment:
+
+```
+https://[your-api-id].execute-api.[region].amazonaws.com/Prod
+```
+
+## Available Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Check Access" icon="shield-check" href="/api/check-access">
+    Verify authorization using AWS Verified Permissions
+  </Card>
+  <Card title="Get Users" icon="users" href="/api/get-users">
+    Retrieve demo users, resources, and available actions
+  </Card>
+  <Card title="Agent" icon="robot" href="/api/agent">
+    Query permissions using natural language AI agent
+  </Card>
+</CardGroup>
+
+## Authentication
+
+This demo application does not require authentication for API calls. In a production environment, you would integrate with Amazon Cognito or another identity provider.
+
+<Warning>
+  This is a demo application. Do not use in production without proper authentication and authorization.
+</Warning>
+
+## CORS Configuration
+
+All endpoints support CORS with the following headers:
+
+```json
+{
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+}
+```
+
+Preflight `OPTIONS` requests are automatically handled by all endpoints.
+
+## Error Responses
+
+All endpoints return error responses in the following format:
+
+<ResponseField name="error" type="string" required>
+  Human-readable error message
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Additional error details when available
+</ResponseField>
+
+<ResponseField name="tip" type="string">
+  Helpful troubleshooting suggestion
+</ResponseField>
+
+### Common Status Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Success |
+| `400` | Bad Request - Invalid input |
+| `500` | Internal Server Error - AWS service error |
+
+## Demo Data
+
+### Users
+
+The demo includes three users with different roles and attributes:
+
+| ID | Name | Role | Department | Clearance Level |
+|----|------|------|------------|----------------|
+| `alice` | Alice Garcia | Analyst | Finance | 2 |
+| `bob` | Bob Torres | Admin | Finance | 3 |
+| `carol` | Carol Mendez | Auditor | HR | 1 |
+
+### Resources
+
+Three documents are available for access control:
+
+| ID | Department | Classification |
+|----|------------|----------------|
+| `Q4-Report-2024` | Finance | confidential |
+| `HR-Payroll-2024` | HR | restricted |
+| `Sales-Dashboard` | Sales | internal |
+
+### Actions
+
+Supported actions for authorization checks:
+
+- `Read` - View the document
+- `Edit` - Modify the document
+- `Delete` - Remove the document
+
+## Rate Limits
+
+<Note>
+  AWS Lambda and API Gateway have default concurrency and rate limits. Adjust these in your AWS account settings as needed.
+</Note>

@@ -1,0 +1,149 @@
+---
+title: Deployment Overview
+description: Complete deployment guide for the AWS Verified Permissions demo project
+---
+
+This section walks you through deploying the AVP demo application to AWS. The deployment process involves creating a policy store in AWS Verified Permissions, deploying the backend infrastructure with SAM, and configuring the frontend.
+
+## Deployment Architecture
+
+The demo application consists of three main components:
+
+- **AWS Verified Permissions Policy Store**: Central authorization engine with Cedar policies
+- **Backend (SAM)**: API Gateway + Lambda functions for access checks and AI agent
+- **Frontend**: Static HTML files served locally that call the backend APIs
+
+```
+Browser (localhost:8000)
+    ↓
+API Gateway (/prod)
+    ↓
+Lambda Functions
+    ↓
+AWS Verified Permissions
+    ↓
+ALLOW / DENY
+```
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed and configured:
+
+<Steps>
+  <Step title="Install AWS CLI v2+">
+    ```bash
+    aws --version
+    ```
+    
+    If not installed, follow the [AWS CLI installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+  </Step>
+
+  <Step title="Install SAM CLI v1.130+">
+    ```bash
+    sam --version
+    ```
+    
+    Install via Homebrew:
+    ```bash
+    brew install aws-sam-cli
+    ```
+    
+    Or follow the [SAM CLI installation guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html).
+  </Step>
+
+  <Step title="Install Python 3.11+">
+    ```bash
+    python3 --version
+    ```
+  </Step>
+
+  <Step title="Configure AWS credentials">
+    Verify your AWS CLI is authenticated:
+    ```bash
+    aws sts get-caller-identity
+    ```
+    
+    You should see your account ID, user ARN, and user ID.
+  </Step>
+</Steps>
+
+## Cost Considerations
+
+<Warning>
+  The Anthropic API has usage-based costs. For the AI agent feature, you need an account at [console.anthropic.com](https://console.anthropic.com) with credits loaded (minimum $5).
+</Warning>
+
+Expected costs for the demo:
+
+| Component | Cost | Required For |
+|-----------|------|-------------|
+| AWS Lambda | Free (Free Tier: 1M requests/month) | All features |
+| API Gateway | Free (Free Tier: 1M calls/month) | All features |
+| AWS Verified Permissions | ~$0.00015 per 1,000 requests | All features |
+| Anthropic API | ~$0.25 per 1M tokens (Haiku) | AI agent only |
+| **Main lab** | **≈ $0.00** | `index.html` |
+| **Full lab with AI agent** | **≈ $0.01 - $0.05 per session** | `avp-agent.html` |
+
+<Note>
+  If you only want the main AVP lab without the AI agent, you can use `placeholder` for the `AnthropicApiKey` parameter. The `index.html` interface does not use the AI features.
+</Note>
+
+## Deployment Steps
+
+The deployment process follows these steps:
+
+<Steps>
+  <Step title="Create Policy Store">
+    Set up an empty policy store in AWS Verified Permissions with the schema that defines users, documents, and actions.
+    
+    [Continue to Policy Store Setup →](/deployment/policy-store)
+  </Step>
+
+  <Step title="Deploy with SAM">
+    Use AWS SAM to build and deploy the Lambda functions and API Gateway.
+    
+    [Continue to SAM Deployment →](/deployment/sam-deploy)
+  </Step>
+
+  <Step title="Configure Frontend">
+    Update the frontend HTML files with your API Gateway URL.
+    
+    [Continue to Frontend Configuration →](/deployment/frontend-config)
+  </Step>
+</Steps>
+
+## What Gets Deployed
+
+### AWS Resources
+
+- **API Gateway**: REST API with CORS enabled for local development
+- **3 Lambda Functions**:
+  - `avp-check-access`: Verifies access using AVP's `IsAuthorized` API
+  - `avp-get-users`: Returns demo users and resources for the UI
+  - `avp-agent`: AI agent that queries AVP via Anthropic's Claude
+- **IAM Roles**: Automatically created with permissions for `verifiedpermissions:IsAuthorized`
+
+### Policy Store Components
+
+- **Schema**: Defines `User`, `Document`, and `Role` entity types with attributes
+- **Policies**: You'll add Cedar policies interactively during the demo
+- **No data stored**: The policy store only contains policies, not actual user/document data
+
+## Region Selection
+
+<Warning>
+  AWS Verified Permissions is not available in all regions. Recommended regions:
+  - `us-west-2` (Oregon)
+  - `us-east-1` (N. Virginia)
+  - `eu-west-1` (Ireland)
+</Warning>
+
+Verify AVP availability in your region on the [AWS Regional Services](https://aws.amazon.com/about-aws/global-infrastructure/regional-product-services/) page.
+
+## Next Steps
+
+Ready to deploy? Start with creating the policy store:
+
+<Card title="Create Policy Store" icon="shield" href="/deployment/policy-store">
+  Set up AWS Verified Permissions with the FinancialApp schema
+</Card>

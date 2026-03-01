@@ -1,0 +1,242 @@
+---
+title: Create Policy Store
+description: Set up AWS Verified Permissions policy store with the FinancialApp schema
+---
+
+The policy store is the central authorization engine for your application. It contains the schema that defines your entity types (users, documents, roles) and the Cedar policies that control access.
+
+## Create Empty Policy Store
+
+<Steps>
+  <Step title="Navigate to AWS Verified Permissions">
+    1. Open the AWS Console
+    2. Search for **"Verified Permissions"** in the search bar
+    3. Click on the service to open the AVP dashboard
+  </Step>
+
+  <Step title="Create new policy store">
+    Click the **"Create policy store"** button.
+  </Step>
+
+  <Step title="Select empty policy store">
+    <Warning>
+      Select **"Empty policy store"** — do NOT use "Guided Setup". The guided setup uses a different schema structure.
+    </Warning>
+    
+    Choose the option to start with an empty policy store.
+  </Step>
+
+  <Step title="Name your policy store">
+    Enter a name for your policy store:
+    ```
+    FinancialDocsStore
+    ```
+    
+    You can use a different name, but this guide uses `FinancialDocsStore` for consistency.
+  </Step>
+
+  <Step title="Create the policy store">
+    Click **"Create"** to finalize the policy store creation.
+  </Step>
+
+  <Step title="Copy the Policy Store ID">
+    <Warning>
+      You MUST save the Policy Store ID — you'll need it for SAM deployment in the next step.
+    </Warning>
+    
+    After creation, you'll see a dashboard with your policy store details. The Policy Store ID looks like:
+    ```
+    PS1a2b3c4d5e6f7g8h9i0
+    ```
+    
+    Copy this ID to your clipboard or a text file.
+  </Step>
+</Steps>
+
+## Configure the Schema
+
+The schema defines the structure of your authorization model: what entity types exist, what attributes they have, and what actions can be performed.
+
+<Steps>
+  <Step title="Open schema editor">
+    In your policy store dashboard:
+    1. Click on the **"Schema"** tab
+    2. Click **"Edit"** to open the schema editor
+  </Step>
+
+  <Step title="Clear existing content">
+    Delete any default content in the schema editor (it should be mostly empty for a new policy store).
+  </Step>
+
+  <Step title="Paste the FinancialApp schema">
+    Copy and paste the following JSON schema:
+    
+    ```json
+    {
+        "FinancialApp": {
+            "entityTypes": {
+                "User": {
+                    "shape": {
+                        "type": "Record",
+                        "attributes": {
+                            "department": {
+                                "type": "String",
+                                "required": true
+                            },
+                            "clearance_level": {
+                                "type": "Long",
+                                "required": true
+                            }
+                        }
+                    },
+                    "memberOfTypes": ["Role"]
+                },
+                "Document": {
+                    "shape": {
+                        "type": "Record",
+                        "attributes": {
+                            "classification": {
+                                "type": "String",
+                                "required": true
+                            },
+                            "department": {
+                                "type": "String",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "Role": {
+                    "memberOfTypes": []
+                }
+            },
+            "actions": {
+                "Read": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                },
+                "Edit": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                },
+                "Delete": {
+                    "appliesTo": {
+                        "principalTypes": ["User"],
+                        "resourceTypes": ["Document"]
+                    }
+                }
+            }
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Save the schema">
+    Click **"Save changes"** at the bottom of the schema editor.
+    
+    If there are any syntax errors, the console will highlight them. Ensure the JSON is valid before saving.
+  </Step>
+</Steps>
+
+## Understanding the Schema
+
+### Entity Types
+
+The schema defines three entity types:
+
+#### User
+
+```json
+"User": {
+    "shape": {
+        "type": "Record",
+        "attributes": {
+            "department": { "type": "String", "required": true },
+            "clearance_level": { "type": "Long", "required": true }
+        }
+    },
+    "memberOfTypes": ["Role"]
+}
+```
+
+- **Attributes**:
+  - `department`: The department the user belongs to (e.g., "Finance", "HR")
+  - `clearance_level`: Numeric security clearance level (1-5)
+- **Hierarchy**: Users can be members of Roles
+
+<Warning>
+  The `"memberOfTypes": ["Role"]` field is critical. It allows AVP to evaluate Cedar expressions like `principal in Role::"Analyst"`. Without this, role-based policies won't work.
+</Warning>
+
+#### Document
+
+```json
+"Document": {
+    "shape": {
+        "type": "Record",
+        "attributes": {
+            "classification": { "type": "String", "required": true },
+            "department": { "type": "String", "required": true }
+        }
+    }
+}
+```
+
+- **Attributes**:
+  - `classification`: Security classification (e.g., "Public", "Confidential", "Secret")
+  - `department`: Department that owns the document
+
+#### Role
+
+```json
+"Role": {
+    "memberOfTypes": []
+}
+```
+
+Roles are simple groupings with no attributes. They exist to group users (e.g., "Analyst", "Auditor").
+
+### Actions
+
+The schema defines three actions that Users can perform on Documents:
+
+```json
+"actions": {
+    "Read": {
+        "appliesTo": {
+            "principalTypes": ["User"],
+            "resourceTypes": ["Document"]
+        }
+    },
+    "Edit": { ... },
+    "Delete": { ... }
+}
+```
+
+Each action specifies:
+- **principalTypes**: Who can perform the action (only Users)
+- **resourceTypes**: What the action can be performed on (only Documents)
+
+## Verify Schema Configuration
+
+After saving, verify your schema:
+
+1. The schema editor should show no errors
+2. You should see the schema JSON rendered in the console
+3. The "Schema" tab should show a green checkmark or "Active" status
+
+<Note>
+  At this point, your policy store has a schema but no policies. This is expected — you'll add policies interactively during the demo after deploying the application.
+</Note>
+
+## Next Steps
+
+With your policy store created and schema configured, you're ready to deploy the backend infrastructure:
+
+<Card title="Deploy with SAM" icon="rocket" href="/deployment/sam-deploy">
+  Build and deploy Lambda functions and API Gateway
+</Card>

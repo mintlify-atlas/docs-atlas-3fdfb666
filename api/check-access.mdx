@@ -1,0 +1,232 @@
+---
+title: 'Check Access'
+description: 'Verify authorization using AWS Verified Permissions'
+---
+
+## Endpoint
+
+<ParamField path="method" type="string" default="POST">
+  POST
+</ParamField>
+
+<ParamField path="path" type="string">
+  `/check-access`
+</ParamField>
+
+## Overview
+
+This endpoint evaluates authorization requests using AWS Verified Permissions (AVP). It checks whether a user can perform a specific action on a resource based on Cedar policies configured in your AVP policy store.
+
+The Lambda handler constructs entity information including user attributes, role memberships, and resource properties, then calls the AVP `IsAuthorized` API to make the authorization decision.
+
+## Request
+
+### Request Body
+
+<ParamField body="user" type="string" required>
+  User ID to check permissions for. Must be one of: `alice`, `bob`, or `carol`.
+</ParamField>
+
+<ParamField body="action" type="string" required>
+  Action to perform. Must be one of: `Read`, `Edit`, or `Delete`.
+</ParamField>
+
+<ParamField body="resource" type="string" required>
+  Resource ID to access. Must be one of: `Q4-Report-2024`, `HR-Payroll-2024`, or `Sales-Dashboard`.
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://[your-api-id].execute-api.[region].amazonaws.com/Prod/check-access \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user": "alice",
+    "action": "Read",
+    "resource": "Q4-Report-2024"
+  }'
+```
+
+## Response
+
+### Success Response (200)
+
+<ResponseField name="decision" type="string" required>
+  The authorization decision from AVP. Either `ALLOW` or `DENY`.
+</ResponseField>
+
+<ResponseField name="allowed" type="boolean" required>
+  Boolean convenience field. `true` if decision is `ALLOW`, `false` otherwise.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  User information object.
+  
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User ID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Full name
+    </ResponseField>
+    <ResponseField name="role" type="string">
+      User's role (Analyst, Admin, Auditor)
+    </ResponseField>
+    <ResponseField name="department" type="string">
+      Department name
+    </ResponseField>
+    <ResponseField name="avatar" type="string">
+      Emoji avatar
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="action" type="string" required>
+  The action that was evaluated (echoed from request).
+</ResponseField>
+
+<ResponseField name="resource" type="string" required>
+  The resource that was evaluated (echoed from request).
+</ResponseField>
+
+<ResponseField name="resource_info" type="object" required>
+  Resource metadata.
+  
+  <Expandable title="properties">
+    <ResponseField name="department" type="string">
+      Resource's department
+    </ResponseField>
+    <ResponseField name="classification" type="string">
+      Security classification level
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="determining_policies" type="array">
+  List of policy IDs that determined the authorization decision.
+</ResponseField>
+
+<ResponseField name="errors" type="array">
+  Any errors encountered during policy evaluation.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Human-readable message describing the authorization result.
+</ResponseField>
+
+### Example Success Response
+
+```json
+{
+  "decision": "ALLOW",
+  "allowed": true,
+  "user": {
+    "id": "alice",
+    "name": "Alice Garcia",
+    "role": "Analyst",
+    "department": "Finance",
+    "avatar": "👩‍💼"
+  },
+  "action": "Read",
+  "resource": "Q4-Report-2024",
+  "resource_info": {
+    "department": "Finance",
+    "classification": "confidential"
+  },
+  "determining_policies": [
+    "policy-12345"
+  ],
+  "errors": [],
+  "message": "✅ ACCESO PERMITIDO: Alice Garcia puede Read en Q4-Report-2024"
+}
+```
+
+### Error Responses
+
+#### 400 - Invalid Request Body
+
+```json
+{
+  "error": "Body invalido: 'user'",
+  "expected": {
+    "user": "alice",
+    "action": "Read",
+    "resource": "Q4-Report-2024"
+  }
+}
+```
+
+#### 400 - Invalid User
+
+```json
+{
+  "error": "Usuario 'john' no existe. Opciones: ['alice', 'bob', 'carol']"
+}
+```
+
+#### 400 - Invalid Resource
+
+```json
+{
+  "error": "Recurso 'unknown-doc' no existe. Opciones: ['Q4-Report-2024', 'HR-Payroll-2024', 'Sales-Dashboard']"
+}
+```
+
+#### 500 - AVP Service Error
+
+```json
+{
+  "error": "Error en AVP: AccessDeniedException",
+  "details": "User: arn:aws:sts::123456789012:assumed-role/... is not authorized to perform: verifiedpermissions:IsAuthorized",
+  "tip": "Verifica que el POLICY_STORE_ID sea correcto y que el Lambda tenga permisos verifiedpermissions:IsAuthorized"
+}
+```
+
+## Entity Structure
+
+The Lambda function constructs Cedar entities for AVP evaluation:
+
+### Principal Entity
+
+```json
+{
+  "identifier": {
+    "entityType": "FinancialApp::User",
+    "entityId": "alice"
+  },
+  "attributes": {
+    "department": {"string": "Finance"},
+    "clearance_level": {"long": 2}
+  },
+  "parents": [
+    {
+      "entityType": "FinancialApp::Role",
+      "entityId": "Analyst"
+    }
+  ]
+}
+```
+
+### Resource Entity
+
+```json
+{
+  "identifier": {
+    "entityType": "FinancialApp::Document",
+    "entityId": "Q4-Report-2024"
+  },
+  "attributes": {
+    "department": {"string": "Finance"},
+    "classification": {"string": "confidential"}
+  },
+  "parents": []
+}
+```
+
+## Source Code Reference
+
+Implemented in `/lambda/app.py:101-232`
+
+<Note>
+  The `POLICY_STORE_ID` environment variable must be configured with your AVP policy store ID for this endpoint to work.
+</Note>

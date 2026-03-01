@@ -1,0 +1,220 @@
+---
+title: Prerequisites
+description: Required tools and accounts needed to deploy the AWS Verified Permissions demo
+---
+
+Before deploying the demo, ensure you have the following tools installed and configured.
+
+## Required tools
+
+### AWS CLI v2 or later
+
+The AWS Command Line Interface is required to interact with AWS services.
+
+<Steps>
+  <Step title="Install AWS CLI">
+    Download and install from [aws.amazon.com/cli](https://aws.amazon.com/cli/)
+    
+    Or use a package manager:
+    
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install awscli
+    ```
+    
+    ```bash Linux (apt)
+    sudo apt install awscli
+    ```
+    
+    ```bash Windows (Chocolatey)
+    choco install awscli
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Verify installation">
+    Check that AWS CLI is properly installed:
+    
+    ```bash
+    aws --version
+    ```
+    
+    Expected output:
+    ```
+    aws-cli/2.x.x Python/3.x.x ...
+    ```
+  </Step>
+  
+  <Step title="Configure credentials">
+    Set up your AWS credentials:
+    
+    ```bash
+    aws configure
+    ```
+    
+    You'll be prompted to enter:
+    - AWS Access Key ID
+    - AWS Secret Access Key  
+    - Default region (e.g., `us-west-2`)
+    - Default output format (use `json`)
+  </Step>
+  
+  <Step title="Test authentication">
+    Verify that your credentials work:
+    
+    ```bash
+    aws sts get-caller-identity
+    ```
+    
+    You should see your AWS account information in JSON format.
+  </Step>
+</Steps>
+
+### AWS SAM CLI v1.130 or later
+
+The AWS Serverless Application Model CLI is used to build and deploy the Lambda functions.
+
+<Steps>
+  <Step title="Install SAM CLI">
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install aws-sam-cli
+    ```
+    
+    ```bash Linux
+    # Download the installer
+    wget https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
+    unzip aws-sam-cli-linux-x86_64.zip -d sam-installation
+    sudo ./sam-installation/install
+    ```
+    
+    ```bash Windows (MSI installer)
+    # Download from:
+    # https://github.com/aws/aws-sam-cli/releases/latest
+    ```
+    </CodeGroup>
+    
+    <Note>
+      SAM CLI requires Docker to be installed for local testing, but Docker is not required for deployment.
+    </Note>
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    sam --version
+    ```
+    
+    Expected output:
+    ```
+    SAM CLI, version 1.130.0
+    ```
+  </Step>
+</Steps>
+
+### Python 3.11 or later
+
+Python is required for the Lambda runtime and local development.
+
+<Steps>
+  <Step title="Check Python version">
+    ```bash
+    python3 --version
+    ```
+    
+    Expected output:
+    ```
+    Python 3.11.x or higher
+    ```
+  </Step>
+  
+  <Step title="Install Python (if needed)">
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install python@3.11
+    ```
+    
+    ```bash Linux (apt)
+    sudo apt update
+    sudo apt install python3.11
+    ```
+    
+    ```bash Windows
+    # Download from python.org
+    # https://www.python.org/downloads/
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## AWS account requirements
+
+<Warning>
+  You need an AWS account with permissions to create and manage the following resources:
+  - AWS Lambda functions
+  - API Gateway REST APIs
+  - AWS Verified Permissions policy stores
+  - IAM roles and policies
+</Warning>
+
+### Required AWS permissions
+
+Your IAM user or role needs permissions for:
+
+- `lambda:*` - Create and manage Lambda functions
+- `apigateway:*` - Create and manage API Gateway
+- `verifiedpermissions:*` - Create policy stores and schemas
+- `iam:CreateRole` - Create execution roles for Lambda
+- `iam:AttachRolePolicy` - Attach policies to Lambda roles
+- `cloudformation:*` - SAM uses CloudFormation for deployment
+
+<Note>
+  The `AdministratorAccess` managed policy includes all required permissions, but you should use more restrictive permissions in production environments.
+</Note>
+
+## Optional: Anthropic API key
+
+The AI agent feature requires an Anthropic API key. This is **optional** - you can skip it and still use the main AVP demo.
+
+<Steps>
+  <Step title="Create Anthropic account">
+    Sign up at [console.anthropic.com](https://console.anthropic.com)
+  </Step>
+  
+  <Step title="Add credits">
+    Add at least $5 in credits to your account. The demo uses Claude Haiku, which costs approximately $0.25 per million tokens.
+  </Step>
+  
+  <Step title="Generate API key">
+    Navigate to API Keys section and create a new key. It will start with `sk-ant-`.
+    
+    <Warning>
+      Keep this key secure. Never commit it to version control or expose it in frontend code.
+    </Warning>
+  </Step>
+</Steps>
+
+<Note>
+  If you don't want to use the AI agent, you can enter `placeholder` as the Anthropic API key during deployment. The main demo (`index.html`) will work perfectly without it.
+</Note>
+
+## Verification checklist
+
+Before proceeding to the quickstart, verify you have:
+
+- [ ] AWS CLI v2+ installed and configured
+- [ ] SAM CLI v1.130+ installed  
+- [ ] Python 3.11+ installed
+- [ ] AWS credentials configured and tested
+- [ ] (Optional) Anthropic API key with credits
+
+Run this combined verification command:
+
+```bash
+aws --version && sam --version && python3 --version && aws sts get-caller-identity
+```
+
+If all commands succeed, you're ready to proceed!
+
+<Card title="Next: Deploy the demo" icon="rocket" href="/quickstart">
+  Follow the step-by-step quickstart guide to create your Policy Store and deploy with SAM
+</Card>

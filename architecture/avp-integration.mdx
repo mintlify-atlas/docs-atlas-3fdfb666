@@ -1,0 +1,542 @@
+---
+title: "AVP Integration"
+description: "How the application integrates with AWS Verified Permissions for authorization"
+---
+
+## Overview
+
+AWS Verified Permissions (AVP) is the authorization engine at the heart of this demo. The application implements **externalized authorization** - authorization logic lives in Cedar policies, not application code.
+
+## The IsAuthorized API
+
+### Purpose
+
+The `is_authorized` API is the single point of integration between the application and AVP. It answers the question: "Can this principal perform this action on this resource?"
+
+### API Structure
+
+Every authorization request requires four components:
+
+```python
+avp_client.is_authorized(
+    policyStoreId="ps-xxxxxxxxxxxx",  # Your policy store
+    principal={...},                    # Who is making the request
+    action={...},                       # What they want to do
+    resource={...},                     # What they want to access
+    entities={...}                      # Context for evaluation
+)
+```
+
+## Request Components
+
+### Policy Store ID
+
+The Policy Store is a container for Cedar policies, schema, and configuration:
+
+```python
+POLICY_STORE_ID = os.environ["POLICY_STORE_ID"]
+```
+
+This is passed as a CloudFormation parameter during deployment and made available to Lambda functions via environment variables.
+
+<Info>
+You can have multiple policy stores for different applications or environments (dev, staging, prod).
+</Info>
+
+### Principal
+
+Identifies **who** is making the request:
+
+```python
+principal={
+    "entityType": "FinancialApp::User",
+    "entityId":    "alice"
+}
+```
+
+- **entityType**: Namespace and entity type from your schema
+- **entityId**: Unique identifier for this specific user
+
+### Action
+
+Defines **what** the principal wants to do:
+
+```python
+action={
+    "actionType": "FinancialApp::Action",
+    "actionId":    "Read"
+}
+```
+
+The demo supports three actions:
+- `Read`: View a document
+- `Edit`: Modify a document
+- `Delete`: Remove a document
+
+### Resource
+
+Specifies **what** the principal wants to access:
+
+```python
+resource={
+    "entityType": "FinancialApp::Document",
+    "entityId":    "Q4-Report-2024"
+}
+```
+
+## Entity Lists
+
+### Why Entity Lists?
+
+Entity lists provide the **context** AVP needs to evaluate ABAC (Attribute-Based Access Control) policies. They contain:
+
+1. **Attributes**: Properties of users and resources (department, clearance level, etc.)
+2. **Relationships**: Hierarchies and group memberships (user belongs to role)
+
+Without entity lists, AVP can only evaluate simple policies. With them, you can write rich policies based on attributes.
+
+### Entity Structure
+
+The `build_entity_list` function (app.py:58) creates entities for the user and resource:
+
+```python
+def build_entity_list(user_id: str, resource_id: str) -> list:
+    user = DEMO_USERS[user_id]
+    resource = DEMO_RESOURCES[resource_id]
+
+    entities = [
+        # User entity
+        {
+            "identifier": {
+                "entityType": "FinancialApp::User",
+                "entityId": user_id
+            },
+            "attributes": {
+                "department":      {"string": user["department"]},
+                "clearance_level": {"long":   user["clearance_level"]},
+            },
+            "parents": [
+                {
+                    "entityType": "FinancialApp::Role",
+                    "entityId": user["role"]
+                }
+            ]
+        },
+        # Resource entity
+        {
+            "identifier": {
+                "entityType": "FinancialApp::Document",
+                "entityId": resource_id
+            },
+            "attributes": {
+                "department":      {"string": resource["department"]},
+                "classification":  {"string": resource["classification"]},
+            },
+            "parents": []
+        }
+    ]
+    return entities
+```
+
+### User Entities
+
+**Attributes**:
+- `department`: Which business unit the user belongs to ("Finance", "HR", "Sales")
+- `clearance_level`: Numeric security clearance (1-3)
+
+**Parents**:
+- Users belong to Roles ("Analyst", "Admin", "Auditor")
+- This enables RBAC policies like "All Admins can Edit"
+
+<Note>
+The `parents` array creates an entity hierarchy. AVP can evaluate policies against both the user and their parent roles.
+</Note>
+
+### Resource Entities
+
+**Attributes**:
+- `department`: Which department owns this document
+- `classification`: Security level ("internal", "confidential", "restricted")
+
+**Parents**:
+- Resources in this demo have no parents
+- In production, you might have folder hierarchies or organizational units
+
+### Attribute Types
+
+AVP supports multiple attribute types:
+
+```python
+{
+    "string":  {"string": "Finance"},
+    "long":    {"long": 3},
+    "boolean": {"boolean": True},
+    "set":     {"set": [{"string": "tag1"}, {"string": "tag2"}]},
+    "record":  {"record": {"key": {"string": "value"}}}
+}
+```
+
+The demo uses `string` for text attributes and `long` for numeric attributes.
+
+## Cedar Policy Evaluation
+
+### How AVP Evaluates Requests
+
+When you call `is_authorized`, AVP:
+
+1. **Loads Policies**: Retrieves all policies from the Policy Store
+2. **Validates Schema**: Ensures the request matches your schema definition
+3. **Evaluates Policies**: Tests each policy against the request + entities
+4. **Combines Results**: Applies policy combination logic (default deny)
+5. **Returns Decision**: ALLOW or DENY with determining policies
+
+### Policy Examples
+
+Here are example Cedar policies that could govern this demo:
+
+#### RBAC Policy: Admins Can Edit
+
+```cedar
+permit(
+    principal in FinancialApp::Role::"Admin",
+    action == FinancialApp::Action::"Edit",
+    resource
+);
+```
+
+This allows anyone in the Admin role to edit any document.
+
+#### ABAC Policy: Department Matching
+
+```cedar
+permit(
+    principal,
+    action == FinancialApp::Action::"Read",
+    resource
+)
+when {
+    principal.department == resource.department
+};
+```
+
+This allows users to read documents from their own department.
+
+#### ABAC Policy: Clearance Level
+
+```cedar
+permit(
+    principal,
+    action == FinancialApp::Action::"Read",
+    resource
+)
+when {
+    principal.clearance_level >= 2 &&
+    resource.classification == "confidential"
+};
+```
+
+This requires clearance level 2+ to read confidential documents.
+
+<Info>
+Cedar policies are human-readable and can be validated independently of your application code.
+</Info>
+
+## AVP Response
+
+### Response Structure
+
+The `is_authorized` call returns a response object:
+
+```python
+avp_response = avp_client.is_authorized(...)
+
+decision = avp_response["decision"]  # "ALLOW" or "DENY"
+determining_policies = avp_response.get("determiningPolicies", [])
+errors = avp_response.get("errors", [])
+```
+
+### Decision Values
+
+- **ALLOW**: At least one policy permits the request and no policy forbids it
+- **DENY**: Either no policy permits the request, or a forbid policy applies
+
+<Note>
+AVP follows a **default deny** model. If no policy explicitly allows an action, it's denied.
+</Note>
+
+### Determining Policies
+
+This array contains the IDs of policies that contributed to the decision:
+
+```python
+"determiningPolicies": [
+    {
+        "policyId": "policy-123456789"
+    }
+]
+```
+
+This is invaluable for:
+- **Debugging**: Understanding why access was granted/denied
+- **Auditing**: Recording which policies authorized actions
+- **UI Feedback**: Showing users why they can/cannot access something
+
+The demo displays this information to users (app.py:202):
+
+```python
+"determining_policies": determining_policies,
+```
+
+### Error Handling
+
+The response may include errors if policy evaluation failed:
+
+```python
+"errors": [
+    {
+        "errorDescription": "Entity does not exist"
+    }
+]
+```
+
+Common errors:
+- Missing entities in the entity list
+- Schema violations
+- Malformed entity attributes
+
+## Integration Patterns
+
+### Pattern 1: Check Access
+
+The primary pattern used in this demo:
+
+```python
+def check_access(user_id, action_id, resource_id):
+    response = avp_client.is_authorized(
+        policyStoreId=POLICY_STORE_ID,
+        principal={"entityType": "App::User", "entityId": user_id},
+        action={"actionType": "App::Action", "actionId": action_id},
+        resource={"entityType": "App::Resource", "entityId": resource_id},
+        entities={"entityList": build_entity_list(user_id, resource_id)}
+    )
+    return response["decision"] == "ALLOW"
+```
+
+Use this pattern:
+- Before performing any action
+- At API gateway/middleware layer
+- When rendering UI elements (show/hide buttons)
+
+### Pattern 2: Batch Authorization
+
+For checking multiple permissions at once:
+
+```python
+def check_multiple_resources(user_id, action_id, resource_ids):
+    results = {}
+    for resource_id in resource_ids:
+        response = avp_client.is_authorized(...)
+        results[resource_id] = response["decision"] == "ALLOW"
+    return results
+```
+
+<Info>
+AVP also offers a `batch_is_authorized` API for more efficient bulk checks.
+</Info>
+
+### Pattern 3: Pre-flight Checks
+
+Check permissions before expensive operations:
+
+```python
+def update_document(user_id, document_id, content):
+    # Check authorization FIRST
+    if not check_access(user_id, "Edit", document_id):
+        raise PermissionDenied("You cannot edit this document")
+    
+    # Then perform expensive operation
+    db.update(document_id, content)
+```
+
+## Agent Integration
+
+The AI agent function (agent.py:41) uses the same AVP integration through a tool:
+
+```python
+def check_avp_access(user_id, action_id, resource_id):
+    try:
+        response = avp_client.is_authorized(
+            policyStoreId=POLICY_STORE_ID,
+            principal={"entityType":"FinancialApp::User","entityId":user_id},
+            action={"actionType":"FinancialApp::Action","actionId":action_id},
+            resource={"entityType":"FinancialApp::Document","entityId":resource_id},
+            entities={"entityList":[...]}
+        )
+        decision = response["decision"]
+        return {
+            "decision": decision,
+            "allowed":  decision == "ALLOW",
+            # ... more fields
+        }
+    except Exception as e:
+        return {"error": str(e)}
+```
+
+The AI agent can:
+- Check multiple permissions in one conversation
+- Explain why access was granted or denied
+- Compare permissions across different users
+
+## Performance Considerations
+
+### Latency
+
+Typical AVP `is_authorized` call latency:
+- P50: 20-50ms
+- P99: 100-200ms
+
+This is fast enough for synchronous request authorization.
+
+### Caching
+
+Consider caching for read-heavy workloads:
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1000)
+def check_access_cached(user_id, action, resource, ttl_hash):
+    return check_access(user_id, action, resource)
+
+# Call with time-based hash for TTL
+import time
+ttl_hash = int(time.time() / 60)  # 1-minute TTL
+result = check_access_cached(user, action, resource, ttl_hash)
+```
+
+<Warning>
+Be careful with caching - stale authorization decisions can be a security risk. Keep TTL short (seconds to minutes).
+</Warning>
+
+### Cost Optimization
+
+AVP pricing:
+- $3.00 per 1M requests
+- First 30M requests per month are free
+
+For this demo, costs are negligible. In production:
+- Use batch APIs for bulk checks
+- Cache where appropriate
+- Avoid unnecessary authorization checks
+
+## Debugging AVP Integration
+
+### Enable Detailed Logging
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('botocore')
+logger.setLevel(logging.DEBUG)
+```
+
+### Log Authorization Requests
+
+```python
+logger.info(f"AVP Check: {user_id} -> {action_id} -> {resource_id}")
+logger.debug(f"Entity list: {json.dumps(entity_list, indent=2)}")
+```
+
+### Check CloudWatch Logs
+
+All Lambda function logs are in CloudWatch:
+
+```bash
+aws logs tail /aws/lambda/avp-check-access --follow
+```
+
+### Test Policies in AVP Console
+
+The AVP console has a policy simulator:
+1. Navigate to your Policy Store
+2. Click "Run a test"
+3. Enter principal, action, resource, and entities
+4. See which policies match and why
+
+## Security Best Practices
+
+### 1. Validate Entity Attributes
+
+Ensure entity attributes come from trusted sources:
+
+```python
+# Good: Attributes from authenticated IdP
+user_attributes = get_user_from_cognito(token)
+
+# Bad: Attributes from client request
+user_attributes = request.json.get("attributes")  # ❌ Never trust client input
+```
+
+### 2. Use Schema Validation
+
+Define a schema in AVP to catch errors early:
+
+```json
+{
+  "FinancialApp": {
+    "entityTypes": {
+      "User": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "department": {"type": "String"},
+            "clearance_level": {"type": "Long"}
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### 3. Principle of Least Privilege
+
+Lambda functions only need `verifiedpermissions:IsAuthorized`:
+
+```yaml
+Policies:
+  - Statement:
+      - Effect: Allow
+        Action:
+          - verifiedpermissions:IsAuthorized
+        Resource: "*"
+```
+
+Don't grant policy management permissions to application functions.
+
+### 4. Audit Authorization Decisions
+
+Log all authorization decisions for security auditing:
+
+```python
+logger.info(f"Authorization decision: {decision}", extra={
+    "user": user_id,
+    "action": action_id,
+    "resource": resource_id,
+    "decision": decision,
+    "policies": determining_policies
+})
+```
+
+Ship these logs to a SIEM for analysis.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Agent" icon="robot" href="/architecture/ai-agent">
+    Learn how the AI agent uses AVP integration
+  </Card>
+  <Card title="Lambda Functions" icon="bolt" href="/architecture/lambda-functions">
+    Return to Lambda function documentation
+  </Card>
+</CardGroup>

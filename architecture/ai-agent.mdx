@@ -1,0 +1,665 @@
+---
+title: "AI Agent Architecture"
+description: "Deep dive into the agentic authorization system using Claude and tool use"
+---
+
+## Overview
+
+The AI Agent is the most sophisticated component of the demo. It allows users to ask natural language questions about permissions and get intelligent, contextual answers by combining Claude's reasoning with real-time AVP authorization checks.
+
+## Why an AI Agent?
+
+Traditional authorization UIs require technical knowledge:
+- Understanding user IDs and resource names
+- Knowing which actions are available
+- Interpreting authorization decisions
+
+An AI agent makes authorization accessible:
+- "Can Alice read the Q4 report?" ✅
+- "Compare Bob's and Carol's access to HR documents" ✅
+- "Why can't Alice delete the sales dashboard?" ✅
+
+## Architecture Pattern: Secure Proxy
+
+The agent follows a **secure proxy pattern** to protect the Anthropic API key:
+
+```
+┌─────────┐                ┌─────────────┐                ┌────────────┐
+│ Browser │───HTTPS───────▶│   Lambda    │───HTTPS───────▶│ Anthropic  │
+│         │                │   Agent     │                │    API     │
+└─────────┘                └──────┬──────┘                └────────────┘
+                                  │
+                                  │ is_authorized()
+                                  ▼
+                           ┌─────────────┐
+                           │     AVP     │
+                           │ Policy Store│
+                           └─────────────┘
+```
+
+**Key Security Property**: The Anthropic API key never leaves the Lambda function. The browser only sends conversation messages.
+
+<Warning>
+Never expose API keys in frontend code. Always use a backend proxy pattern for third-party API calls.
+</Warning>
+
+## Lambda Configuration
+
+The AgentFunction has special configuration:
+
+```yaml
+AgentFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-agent
+    CodeUri: lambda/
+    Handler: agent.lambda_handler
+    Description: "Agente IA que consulta AVP — proxy seguro hacia Anthropic API"
+    Timeout: 60  # Longer timeout for AI processing
+    Environment:
+      Variables:
+        POLICY_STORE_ID: !Ref PolicyStoreId
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey  # Secure API key
+```
+
+**Key Differences from Other Functions**:
+- **Timeout**: 60 seconds (vs 30) to accommodate multiple AI calls and tool executions
+- **Environment**: Includes `ANTHROPIC_API_KEY` from CloudFormation NoEcho parameter
+- **IAM**: Same `verifiedpermissions:IsAuthorized` permission as CheckAccessFunction
+
+## Request/Response Flow
+
+### Request Format
+
+The browser sends conversation messages:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can Alice read the Q4 Report?"
+    }
+  ]
+}
+```
+
+For multi-turn conversations, include the full message history:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can Alice read the Q4 Report?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, Alice can read it because..."
+    },
+    {
+      "role": "user",
+      "content": "What about Bob?"
+    }
+  ]
+}
+```
+
+### Response Format
+
+```json
+{
+  "response": "Sí, Alice puede leer el Q4 Report porque...",
+  "messages": [
+    // Full conversation history including tool calls
+  ]
+}
+```
+
+The `messages` array includes internal tool calls for transparency and debugging.
+
+## The Agentic Loop
+
+### What is an Agentic Loop?
+
+An agentic loop allows the AI to:
+1. **Reason** about the user's question
+2. **Decide** if it needs to call a tool
+3. **Execute** the tool
+4. **Incorporate** results into its reasoning
+5. **Repeat** until it has enough information
+6. **Respond** to the user
+
+This is more powerful than a simple function call because the AI decides when and how to use tools.
+
+### Implementation
+
+The `run_agent` function (agent.py:94) implements the agentic loop:
+
+```python
+def run_agent(messages):
+    """
+    Ejecuta el loop agentico:
+    1. Llama a Claude con tools disponibles
+    2. Si Claude quiere usar una tool → ejecútala → devuelve resultado
+    3. Repite hasta end_turn
+    """
+    current_messages = list(messages)
+
+    for _ in range(10):  # max 10 iteraciones
+        # Call Anthropic API
+        payload = json.dumps({
+            "model":      "claude-haiku-4-5-20251001",
+            "max_tokens": 1000,
+            "system":     system,
+            "tools":      tools,
+            "messages":   current_messages
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type":      "application/json",
+                "x-api-key":         ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST"
+        )
+
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+
+        current_messages.append({"role":"assistant","content": data["content"]})
+
+        # Check stop reason
+        if data["stop_reason"] == "end_turn":
+            # AI is done - extract response
+            text = " ".join(b["text"] for b in data["content"] if b["type"] == "text")
+            return {"response": text, "messages": current_messages}
+
+        if data["stop_reason"] == "tool_use":
+            # AI wants to use a tool
+            tool_results = []
+            for block in data["content"]:
+                if block["type"] != "tool_use":
+                    continue
+                inp = block["input"]
+                logger.info(f"Tool call: {block['name']}({inp})")
+                result = check_avp_access(inp["user"], inp["action"], inp["resource"])
+                tool_results.append({
+                    "type":        "tool_result",
+                    "tool_use_id": block["id"],
+                    "content":     json.dumps(result)
+                })
+            current_messages.append({"role":"user","content": tool_results})
+            # Loop continues - AI will process tool results
+
+    return {"response": "No pude completar la consulta.", "messages": current_messages}
+```
+
+### Loop Breakdown
+
+**Iteration 1: Initial Question**
+- Input: "Can Alice read the Q4 Report?"
+- Claude reasoning: "I need to check AVP"
+- Stop reason: `tool_use`
+- Action: Call `check_avp_access("alice", "Read", "Q4-Report-2024")`
+
+**Iteration 2: Process Tool Result**
+- Input: Tool result (ALLOW/DENY)
+- Claude reasoning: "Got the result, now I can answer"
+- Stop reason: `end_turn`
+- Action: Return natural language response
+
+<Info>
+The loop can iterate up to 10 times, allowing Claude to make multiple tool calls for complex questions.
+</Info>
+
+## Anthropic API Integration
+
+### Model Selection
+
+The agent uses Claude Haiku for fast, cost-effective responses:
+
+```python
+"model": "claude-haiku-4-5-20251001"
+```
+
+**Why Haiku?**
+- Fast response times (1-2 seconds)
+- Low cost ($0.25 per 1M input tokens)
+- Sufficient reasoning for authorization questions
+- Excellent tool use capabilities
+
+For more complex reasoning, you could upgrade to:
+- `claude-sonnet-4-5-20250514`: Better reasoning, moderate cost
+- `claude-opus-4-20250514`: Best reasoning, higher cost
+
+### API Request Format
+
+The request follows Anthropic's Messages API format:
+
+```python
+payload = {
+    "model":      "claude-haiku-4-5-20251001",
+    "max_tokens": 1000,
+    "system":     system,    # System prompt
+    "tools":      tools,     # Tool definitions
+    "messages":   messages   # Conversation history
+}
+```
+
+### Using urllib Instead of SDK
+
+The code uses Python's built-in `urllib` instead of the Anthropic SDK:
+
+```python
+req = urllib.request.Request(
+    "https://api.anthropic.com/v1/messages",
+    data=payload,
+    headers={
+        "Content-Type":      "application/json",
+        "x-api-key":         ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+    },
+    method="POST"
+)
+
+with urllib.request.urlopen(req) as resp:
+    data = json.loads(resp.read())
+```
+
+**Why not use the SDK?**
+- Avoids adding dependencies to Lambda
+- Reduces cold start time
+- Smaller deployment package
+- Simple HTTP calls are sufficient for this use case
+
+## Tool Definitions
+
+### The check_avp_access Tool
+
+Tools are defined in JSON schema format (agent.py:102):
+
+```python
+tools = [{
+    "name": "check_avp_access",
+    "description": (
+        "Verifica en AWS Verified Permissions si un usuario puede ejecutar "
+        "una acción sobre un recurso. "
+        "Usuarios: alice (Analyst/Finance), bob (Admin/Finance), carol (Auditor/HR). "
+        "Acciones: Read, Edit, Delete. "
+        "Recursos: Q4-Report-2024, HR-Payroll-2024, Sales-Dashboard."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "user":     {"type":"string","description":"alice, bob, o carol"},
+            "action":   {"type":"string","description":"Read, Edit, o Delete"},
+            "resource": {"type":"string","description":"Q4-Report-2024, HR-Payroll-2024, o Sales-Dashboard"}
+        },
+        "required": ["user","action","resource"]
+    }
+}]
+```
+
+**Key Components**:
+
+1. **Name**: Identifies the tool (must be unique)
+2. **Description**: Tells Claude when and how to use the tool. This is critical - Claude uses this to decide whether to call the tool.
+3. **Input Schema**: Defines the parameters using JSON Schema
+
+<Note>
+The description is crucial for tool use. Be specific about what the tool does and include examples of valid inputs.
+</Note>
+
+### Tool Execution
+
+When Claude wants to use the tool, the agent executes it:
+
+```python
+if data["stop_reason"] == "tool_use":
+    tool_results = []
+    for block in data["content"]:
+        if block["type"] != "tool_use":
+            continue
+        inp = block["input"]
+        logger.info(f"Tool call: {block['name']}({inp})")
+        result = check_avp_access(inp["user"], inp["action"], inp["resource"])
+        tool_results.append({
+            "type":        "tool_result",
+            "tool_use_id": block["id"],
+            "content":     json.dumps(result)
+        })
+    current_messages.append({"role":"user","content": tool_results})
+```
+
+The tool implementation (agent.py:41) is similar to the main CheckAccessFunction but returns a dict instead of HTTP response:
+
+```python
+def check_avp_access(user_id, action_id, resource_id):
+    if user_id not in DEMO_USERS:
+        return {"error": f"Usuario '{user_id}' no existe"}
+    if resource_id not in DEMO_RESOURCES:
+        return {"error": f"Recurso '{resource_id}' no existe"}
+
+    user = DEMO_USERS[user_id]
+    resource = DEMO_RESOURCES[resource_id]
+
+    try:
+        response = avp_client.is_authorized(
+            policyStoreId=POLICY_STORE_ID,
+            principal={"entityType":"FinancialApp::User","entityId":user_id},
+            action={"actionType":"FinancialApp::Action","actionId":action_id},
+            resource={"entityType":"FinancialApp::Document","entityId":resource_id},
+            entities={"entityList":[...]}
+        )
+        decision = response["decision"]
+        return {
+            "decision": decision,
+            "allowed":  decision == "ALLOW",
+            "user":     {**user, "id": user_id},
+            "action":   action_id,
+            "resource": resource_id,
+            "resource_info": resource,
+            "message": (
+                f"✅ ACCESO PERMITIDO: {user['name']} puede {action_id} en {resource_id}"
+                if decision == "ALLOW" else
+                f"🚫 ACCESO DENEGADO: {user['name']} no tiene permisos para {action_id} en {resource_id}"
+            )
+        }
+    except Exception as e:
+        return {"error": str(e)}
+```
+
+## System Prompt
+
+The system prompt guides Claude's behavior (agent.py:122):
+
+```python
+system = (
+    "Eres un agente de seguridad experto en AWS Verified Permissions. "
+    "Responde preguntas sobre permisos usando la herramienta check_avp_access. "
+    "NUNCA asumas el resultado — siempre verifica con la herramienta. "
+    "Si preguntan por múltiples usuarios o recursos, verifica cada combinación. "
+    "Explica brevemente por qué AVP tomó esa decisión (RBAC/ABAC/Cedar). "
+    "Sé conciso. Responde siempre en español."
+)
+```
+
+**Prompt Design Principles**:
+
+1. **Role Definition**: "Eres un agente de seguridad experto"
+2. **Tool Guidance**: "Responde preguntas... usando la herramienta"
+3. **Safety Constraint**: "NUNCA asumas el resultado"
+4. **Completeness**: "Si preguntan por múltiples... verifica cada combinación"
+5. **Explanation**: "Explica brevemente por qué"
+6. **Style**: "Sé conciso. Responde siempre en español"
+
+<Info>
+Good system prompts are specific about behavior, include constraints, and set expectations for output format.
+</Info>
+
+## Example Interactions
+
+### Simple Query
+
+**User**: "Can Alice read the Q4 Report?"
+
+**Agent Process**:
+1. Call Anthropic API with user question
+2. Claude decides to use `check_avp_access`
+3. Execute: `check_avp_access("alice", "Read", "Q4-Report-2024")`
+4. AVP returns: ALLOW
+5. Claude synthesizes response
+
+**Response**: "Sí, Alice puede leer el Q4 Report porque es del departamento Finance, igual que el documento, y su nivel de clearance (2) es suficiente para documentos confidenciales."
+
+### Complex Multi-Step Query
+
+**User**: "Compare Alice's and Bob's access to all Finance documents"
+
+**Agent Process**:
+1. Claude identifies need for multiple checks
+2. Calls:
+   - `check_avp_access("alice", "Read", "Q4-Report-2024")`
+   - `check_avp_access("alice", "Edit", "Q4-Report-2024")`
+   - `check_avp_access("alice", "Delete", "Q4-Report-2024")`
+   - `check_avp_access("bob", "Read", "Q4-Report-2024")`
+   - `check_avp_access("bob", "Edit", "Q4-Report-2024")`
+   - `check_avp_access("bob", "Delete", "Q4-Report-2024")`
+3. Synthesizes results
+
+**Response**: "Alice puede leer el Q4 Report pero no editarlo ni borrarlo. Bob, como Admin del departamento Finance, tiene acceso completo: puede leer, editar y borrar el documento."
+
+### Error Handling
+
+**User**: "Can Charlie read the Q4 Report?"
+
+**Agent Process**:
+1. Call `check_avp_access("charlie", "Read", "Q4-Report-2024")`
+2. Tool returns: `{"error": "Usuario 'charlie' no existe"}`
+3. Claude handles error gracefully
+
+**Response**: "El usuario 'charlie' no existe en el sistema. Los usuarios disponibles son: alice (Analyst), bob (Admin), y carol (Auditor)."
+
+## Performance Optimization
+
+### Parallel Tool Calls
+
+Claude can make multiple tool calls in a single stop:
+
+```python
+for block in data["content"]:
+    if block["type"] == "tool_use":
+        # Multiple tools can be called in one response
+```
+
+This reduces the number of round trips to Anthropic.
+
+### Token Usage
+
+Typical token usage:
+- Simple query: ~200 input tokens, ~100 output tokens
+- Complex query: ~500 input tokens, ~300 output tokens
+
+At Haiku pricing:
+- Input: $0.25 per 1M tokens
+- Output: $1.25 per 1M tokens
+- Cost per query: $0.0001 - $0.001 (very cheap)
+
+### Timeout Considerations
+
+The 60-second timeout accommodates:
+- Up to 10 loop iterations
+- ~3-5 seconds per Anthropic API call
+- Tool execution time (~50ms per AVP call)
+- Network latency
+
+In practice, most queries complete in 5-10 seconds.
+
+## Security Considerations
+
+### API Key Protection
+
+✅ **Good**: API key in Lambda environment variable
+```python
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+```
+
+❌ **Bad**: API key in frontend code
+```javascript
+const API_KEY = "sk-ant-...";  // Never do this!
+```
+
+### Input Validation
+
+The agent validates inputs before calling AVP:
+
+```python
+if user_id not in DEMO_USERS:
+    return {"error": f"Usuario '{user_id}' no existe"}
+if resource_id not in DEMO_RESOURCES:
+    return {"error": f"Recurso '{resource_id}' no existe"}
+```
+
+### Rate Limiting
+
+Consider adding rate limiting for production:
+
+```python
+from functools import lru_cache
+import time
+
+# Simple per-user rate limit
+user_requests = {}
+
+def check_rate_limit(user_id, limit=10, window=60):
+    now = time.time()
+    requests = user_requests.get(user_id, [])
+    requests = [r for r in requests if r > now - window]
+    if len(requests) >= limit:
+        raise RateLimitError("Too many requests")
+    requests.append(now)
+    user_requests[user_id] = requests
+```
+
+### Prompt Injection
+
+The system prompt includes safety guidance:
+
+```python
+"NUNCA asumas el resultado — siempre verifica con la herramienta."
+```
+
+This prevents Claude from making up authorization decisions.
+
+## Debugging the Agent
+
+### Enable Tool Call Logging
+
+The agent logs every tool call:
+
+```python
+logger.info(f"Tool call: {block['name']}({inp})")
+```
+
+Check CloudWatch Logs:
+
+```bash
+aws logs tail /aws/lambda/avp-agent --follow
+```
+
+### Return Full Message History
+
+The response includes the full conversation:
+
+```json
+{
+  "response": "...",
+  "messages": [
+    {"role": "user", "content": "Can Alice read Q4?"},
+    {"role": "assistant", "content": [
+      {"type": "tool_use", "name": "check_avp_access", ...}
+    ]},
+    {"role": "user", "content": [
+      {"type": "tool_result", "content": "..."}
+    ]},
+    {"role": "assistant", "content": "Yes, Alice can..."}
+  ]
+}
+```
+
+Use this to debug the agentic loop.
+
+### Test Locally
+
+You can test the agent logic without deploying:
+
+```python
+if __name__ == "__main__":
+    # Mock environment
+    os.environ["POLICY_STORE_ID"] = "ps-test"
+    os.environ["ANTHROPIC_API_KEY"] = "sk-ant-..."
+    
+    # Mock event
+    event = {
+        "body": json.dumps({
+            "messages": [{"role": "user", "content": "Test question"}]
+        })
+    }
+    
+    result = lambda_handler(event, None)
+    print(result)
+```
+
+## Extending the Agent
+
+### Add More Tools
+
+You could add tools for:
+
+```python
+tools = [
+    {"name": "check_avp_access", ...},
+    {"name": "list_user_permissions", ...},
+    {"name": "explain_policy", ...},
+    {"name": "suggest_policy_changes", ...}
+]
+```
+
+### Multi-Language Support
+
+Modify the system prompt:
+
+```python
+"Responde en el idioma que el usuario utilice."
+```
+
+### Streaming Responses
+
+For longer responses, use Anthropic's streaming API:
+
+```python
+req = urllib.request.Request(
+    "https://api.anthropic.com/v1/messages",
+    headers={"anthropic-beta": "messages-2023-12-15"}
+)
+```
+
+Then use API Gateway WebSockets to stream to the frontend.
+
+## Comparison: Agent vs Traditional UI
+
+| Aspect | Traditional UI | AI Agent |
+|--------|---------------|----------|
+| **Ease of Use** | Requires understanding of users/resources | Natural language questions |
+| **Flexibility** | Fixed set of queries | Open-ended questions |
+| **Explanation** | Raw ALLOW/DENY | Contextual explanations |
+| **Discovery** | User must know what to ask | Agent can suggest related queries |
+| **Complexity** | Simple queries only | Can handle multi-step reasoning |
+| **Cost** | Minimal (just Lambda) | Small AI API cost (~$0.0001/query) |
+| **Latency** | 50-100ms | 2-5 seconds |
+
+## Best Practices
+
+1. **Always Verify**: Never let Claude assume - always call tools
+2. **Comprehensive System Prompts**: Be specific about behavior and constraints
+3. **Good Tool Descriptions**: Include examples and valid values
+4. **Error Handling**: Handle tool errors gracefully
+5. **Logging**: Log all tool calls for debugging
+6. **Rate Limiting**: Prevent abuse in production
+7. **Timeout Tuning**: Adjust based on complexity of queries
+8. **Cost Monitoring**: Track Anthropic API usage
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="diagram-project" href="/architecture/overview">
+    Return to the architecture overview
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Deploy and test the agent
+  </Card>
+</CardGroup>

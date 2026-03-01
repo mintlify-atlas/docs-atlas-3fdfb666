@@ -1,0 +1,209 @@
+---
+title: "Architecture Overview"
+description: "High-level architecture of the AWS Verified Permissions demo application"
+---
+
+## System Architecture
+
+The AVP Demo is a serverless application built on AWS that demonstrates fine-grained authorization using AWS Verified Permissions (AVP). The architecture follows a secure, scalable design pattern that separates authorization logic from application code.
+
+## Architecture Diagram
+
+The system consists of the following components:
+
+```
+┌─────────────┐
+│   Browser   │
+│   Frontend  │
+└──────┬──────┘
+       │ HTTPS
+       ▼
+┌─────────────────────────────────┐
+│     API Gateway (prod stage)     │
+│  - /check-access (POST)          │
+│  - /users (GET)                  │
+│  - /agent (POST)                 │
+└────────┬────────────────┬────────┘
+         │                │
+         ▼                ▼
+┌────────────────┐  ┌────────────────┐
+│  Lambda:       │  │  Lambda:       │
+│  CheckAccess   │  │  Agent         │
+│  (app.py)      │  │  (agent.py)    │
+└────────┬───────┘  └────────┬───────┘
+         │                   │
+         │  is_authorized()  │
+         └───────┬───────────┘
+                 ▼
+      ┌─────────────────────┐
+      │  AWS Verified       │
+      │  Permissions        │
+      │  Policy Store       │
+      └─────────────────────┘
+```
+
+## Component Relationships
+
+### API Gateway
+
+The API Gateway serves as the entry point for all requests:
+
+- **Stage**: `prod`
+- **CORS**: Enabled for all origins (demo purposes)
+- **Endpoints**: Three main endpoints for access checking, user listing, and AI agent queries
+
+### Lambda Functions
+
+Three Lambda functions handle different aspects of the application:
+
+1. **CheckAccessFunction** (`avp-check-access`): Validates user access requests against AVP policies
+2. **GetUsersFunction** (`avp-get-users`): Provides demo user and resource data for the UI
+3. **AgentFunction** (`avp-agent`): AI-powered agent that answers natural language questions about permissions
+
+All functions run on Python 3.11 with a 30-second timeout (60 seconds for the agent).
+
+### AWS Verified Permissions
+
+AVP is the authorization engine that evaluates Cedar policies. The Policy Store contains:
+
+- **Cedar Policies**: Fine-grained access control rules
+- **Entity Types**: User, Role, Document, Action
+- **Schema**: Defines the structure of entities and their relationships
+
+<Info>
+The Policy Store ID is passed as a CloudFormation parameter and made available to Lambda functions via environment variables.
+</Info>
+
+## Data Flow
+
+### Access Check Flow
+
+1. **Frontend Request**: User selects a principal, action, and resource
+2. **API Gateway**: Routes POST request to CheckAccessFunction
+3. **Lambda Processing**:
+   - Validates request parameters
+   - Constructs entity list with user and resource attributes
+   - Calls AVP `is_authorized` API
+4. **AVP Evaluation**:
+   - Evaluates Cedar policies against the request
+   - Returns ALLOW or DENY decision
+5. **Response**: Lambda returns decision with detailed information
+
+### AI Agent Flow
+
+1. **User Question**: Natural language query about permissions
+2. **Agent Lambda**: Receives conversation messages
+3. **Anthropic API**: Claude processes the query with tool definitions
+4. **Agentic Loop**:
+   - Claude decides if it needs to check permissions
+   - Agent executes `check_avp_access` tool
+   - Results feed back to Claude for reasoning
+5. **Response**: Natural language explanation of permissions
+
+<Note>
+The AI agent acts as a secure proxy - the Anthropic API key is never exposed to the frontend.
+</Note>
+
+## Security Design
+
+### IAM Permissions
+
+Each Lambda function has minimal IAM permissions:
+
+```yaml
+Policies:
+  - Statement:
+      - Effect: Allow
+        Action:
+          - verifiedpermissions:IsAuthorized
+        Resource: "*"
+```
+
+Functions only have permission to call AVP's `IsAuthorized` API, following the principle of least privilege.
+
+### Secrets Management
+
+Sensitive configuration is handled securely:
+
+- **Policy Store ID**: CloudFormation parameter, stored in environment variables
+- **Anthropic API Key**: CloudFormation NoEcho parameter, only accessible to AgentFunction
+
+### Authorization Pattern
+
+The application implements **externalized authorization**:
+
+- Authorization logic lives in AVP (Cedar policies)
+- Application code only makes authorization decisions, doesn't implement them
+- Policies can be updated without deploying code changes
+
+## Demo Data
+
+The application includes three demo users:
+
+- **Alice Garcia**: Finance Analyst, clearance level 2
+- **Bob Torres**: Finance Admin, clearance level 3
+- **Carol Mendez**: HR Auditor, clearance level 1
+
+And three resources:
+
+- **Q4-Report-2024**: Finance document, confidential classification
+- **HR-Payroll-2024**: HR document, restricted classification
+- **Sales-Dashboard**: Sales document, internal classification
+
+<Info>
+In production, user attributes would come from an Identity Provider (Cognito, Okta, etc.) rather than hardcoded data.
+</Info>
+
+## Deployment
+
+The infrastructure is defined in `template.yaml` using AWS SAM (Serverless Application Model):
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AVP Demo - AWS Student Community Day Peru
+  Speaker: Gerardo Castro, AWS Security Hero
+```
+
+Deploy with:
+
+```bash
+sam build
+sam deploy --guided
+```
+
+## Key Design Decisions
+
+### Serverless Architecture
+
+**Why**: Zero infrastructure management, automatic scaling, pay-per-use pricing
+
+### Entity Lists
+
+**Why**: AVP needs entity attributes to evaluate ABAC (Attribute-Based Access Control) policies. Entity lists provide user departments, clearance levels, and resource classifications.
+
+### AI Agent Pattern
+
+**Why**: Natural language interface makes permissions more accessible to non-technical users while maintaining security through the Lambda proxy pattern.
+
+### Cedar Policy Language
+
+**Why**: Cedar provides human-readable, analyzable authorization policies that can be validated and tested independently of application code.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Lambda Functions" icon="bolt" href="/architecture/lambda-functions">
+    Detailed documentation of each Lambda function
+  </Card>
+  <Card title="AVP Integration" icon="shield-check" href="/architecture/avp-integration">
+    How the application integrates with AWS Verified Permissions
+  </Card>
+  <Card title="AI Agent" icon="robot" href="/architecture/ai-agent">
+    Deep dive into the agentic authorization system
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Deploy and run the demo
+  </Card>
+</CardGroup>

@@ -1,0 +1,397 @@
+---
+title: "Cleanup"
+description: "Remove all AWS resources created for the Verified Permissions demo"
+---
+
+When you're finished with the demo, follow these steps to delete all AWS resources and avoid ongoing charges.
+
+<Warning>
+  **This is a destructive operation.** Make sure you've saved any Cedar policies or configurations you want to keep before proceeding.
+</Warning>
+
+## Pre-Cleanup Checklist
+
+Before deleting resources, you may want to:
+
+<Steps>
+<Step title="Export Cedar policies">
+
+If you created policies during the demo that you want to reference later:
+
+1. Go to AWS Console > **Verified Permissions** > Your Policy Store
+2. Click **Policies**
+3. For each policy you want to save:
+   - Click the policy name
+   - Copy the Cedar policy text
+   - Save to a local file
+
+</Step>
+
+<Step title="Document Policy Store configuration">
+
+Note your Policy Store settings if you want to recreate a similar setup:
+
+- Policy Store ID
+- Schema definition (JSON)
+- Validation mode settings
+
+</Step>
+
+<Step title="Stop the local server">
+
+If your frontend server is still running:
+
+```bash
+# Press Ctrl+C in the terminal where you ran:
+python3 -m http.server 8000
+```
+
+</Step>
+</Steps>
+
+## Delete AWS Infrastructure
+
+The demo creates resources in two places: SAM stack (Lambda, API Gateway) and Verified Permissions. Delete them in this order:
+
+### Step 1: Delete the SAM Stack
+
+The SAM stack includes:
+- Lambda functions (check-access, get-users, agent)
+- API Gateway
+- IAM roles and policies
+- CloudWatch log groups
+
+<Steps>
+<Step title="Run SAM delete command">
+
+```bash
+cd avp-demo/
+sam delete --stack-name avp-demo
+```
+
+You'll see:
+
+```
+Are you sure you want to delete the stack avp-demo in the region us-west-2 ? [y/N]:
+```
+
+Type `y` and press Enter.
+
+</Step>
+
+<Step title="Confirm deletion">
+
+SAM will display resources being deleted:
+
+```
+Deleting CloudFormation stack avp-demo
+
+Deleted successfully
+```
+
+This process typically takes 1-2 minutes.
+
+</Step>
+
+<Step title="Verify deletion (optional)">
+
+Confirm the stack is gone:
+
+```bash
+aws cloudformation describe-stacks --stack-name avp-demo
+```
+
+You should see an error:
+
+```
+An error occurred (ValidationError) when calling the DescribeStacks operation: 
+Stack with id avp-demo does not exist
+```
+
+</Step>
+</Steps>
+
+### Step 2: Delete the Policy Store
+
+<Warning>
+  **SAM cannot delete the Policy Store** because it was created manually in the AWS Console. You must delete it manually.
+</Warning>
+
+<Steps>
+<Step title="Navigate to Verified Permissions">
+
+1. Open the [AWS Console](https://console.aws.amazon.com)
+2. Search for **"Verified Permissions"**
+3. Select **Verified Permissions** service
+
+</Step>
+
+<Step title="Locate your Policy Store">
+
+Find the Policy Store you created (e.g., `FinancialDocsStore`).
+
+Click on the Policy Store name to view details.
+
+</Step>
+
+<Step title="Delete all policies first">
+
+Before deleting the Policy Store, remove all policies:
+
+1. Click **Policies** in the left sidebar
+2. Select all policies (checkboxes)
+3. Click **Delete**
+4. Confirm the deletion
+
+<Info>
+  You must delete policies before the Policy Store itself can be removed.
+</Info>
+
+</Step>
+
+<Step title="Delete the Policy Store">
+
+1. Return to the Policy Store details page
+2. Click **Delete policy store** (usually in the Actions dropdown or top-right)
+3. Type the Policy Store name to confirm
+4. Click **Delete**
+
+</Step>
+
+<Step title="Verify deletion">
+
+You should see a success message. The Policy Store list should no longer show your demo store.
+
+</Step>
+</Steps>
+
+## Verify Complete Cleanup
+
+Double-check that all resources are removed:
+
+<AccordionGroup>
+  <Accordion title="CloudFormation Stacks">
+    ```bash
+    aws cloudformation list-stacks --stack-status-filter DELETE_COMPLETE
+    ```
+    
+    Look for `avp-demo` in the output with status `DELETE_COMPLETE`.
+  </Accordion>
+
+  <Accordion title="Lambda Functions">
+    ```bash
+    aws lambda list-functions --query 'Functions[?starts_with(FunctionName, `avp-`)].FunctionName'
+    ```
+    
+    Should return an empty list `[]` or not include:
+    - `avp-check-access`
+    - `avp-get-users`
+    - `avp-agent`
+  </Accordion>
+
+  <Accordion title="API Gateway APIs">
+    ```bash
+    aws apigateway get-rest-apis --query 'items[?name==`avp-demo-api`]'
+    ```
+    
+    Should return an empty list `[]`.
+  </Accordion>
+
+  <Accordion title="Verified Permissions Policy Stores">
+    ```bash
+    aws verifiedpermissions list-policy-stores
+    ```
+    
+    Your demo Policy Store ID should not appear in the list.
+  </Accordion>
+</AccordionGroup>
+
+## CloudWatch Logs Retention
+
+<Info>
+  CloudWatch log groups are automatically deleted with the SAM stack, but logs may be retained based on your AWS account settings.
+</Info>
+
+If you want to manually verify log group deletion:
+
+```bash
+aws logs describe-log-groups --log-group-name-prefix /aws/lambda/avp-
+```
+
+Should return no results or show only unrelated log groups.
+
+To manually delete log groups if they persist:
+
+```bash
+aws logs delete-log-group --log-group-name /aws/lambda/avp-check-access
+aws logs delete-log-group --log-group-name /aws/lambda/avp-get-users
+aws logs delete-log-group --log-group-name /aws/lambda/avp-agent
+```
+
+## Anthropic API Key
+
+The Anthropic API Key you provided during deployment:
+- Was stored as an encrypted environment variable in Lambda
+- Is automatically deleted when the Lambda function is deleted
+- Does **not** need manual cleanup
+
+However, if you want to revoke the key:
+
+1. Visit [console.anthropic.com](https://console.anthropic.com)
+2. Go to **API Keys**
+3. Find the key you used for the demo
+4. Click **Revoke** or **Delete**
+
+<Warning>
+  Only revoke the key if you're not using it for other projects.
+</Warning>
+
+## Local Files Cleanup
+
+The demo files on your local machine are not automatically deleted. To remove them:
+
+```bash
+cd ~
+rm -rf avp-demo/
+```
+
+<Warning>
+  This permanently deletes the entire project directory. Make sure you've backed up any customizations.
+</Warning>
+
+If you want to keep the source code but remove build artifacts:
+
+```bash
+cd avp-demo/
+rm -rf .aws-sam/
+rm samconfig.toml  # Contains your deployment parameters
+```
+
+## Cost Verification
+
+After cleanup, verify no ongoing costs:
+
+<Steps>
+<Step title="Check AWS Cost Explorer">
+
+1. AWS Console > **Cost Explorer**
+2. Set date range to include demo period
+3. Group by **Service**
+4. Look for:
+   - **Lambda**: Should drop to $0 after cleanup
+   - **API Gateway**: Should drop to $0
+   - **Verified Permissions**: Should drop to $0
+   - **CloudWatch Logs**: May have small storage cost if logs retained
+
+</Step>
+
+<Step title="Set up billing alerts (optional)">
+
+To avoid unexpected charges in the future:
+
+1. AWS Console > **Billing and Cost Management**
+2. Click **Budgets**
+3. Create a budget with alerts for your threshold (e.g., $1, $5, $10)
+
+</Step>
+</Steps>
+
+## Troubleshooting Cleanup Issues
+
+<AccordionGroup>
+  <Accordion title="SAM delete fails with 'stack does not exist'">
+    The stack may have been deleted already, or you're in the wrong region.
+    
+    **Verify region**:
+    ```bash
+    aws configure get region
+    ```
+    
+    **Check all regions**:
+    ```bash
+    aws cloudformation list-stacks --region us-west-2
+    aws cloudformation list-stacks --region us-east-1
+    ```
+  </Accordion>
+
+  <Accordion title="Policy Store deletion fails">
+    **Error: "Cannot delete policy store with existing policies"**
+    
+    You must delete all policies first:
+    1. Go to Policy Store > Policies
+    2. Delete each policy individually
+    3. Wait for deletion to complete
+    4. Then delete the Policy Store
+  </Accordion>
+
+  <Accordion title="CloudFormation stack stuck in DELETE_IN_PROGRESS">
+    Some resources may have dependencies preventing deletion.
+    
+    **View events**:
+    ```bash
+    aws cloudformation describe-stack-events --stack-name avp-demo
+    ```
+    
+    Look for resources with status `DELETE_FAILED` and error messages.
+    
+    **Common causes**:
+    - CloudWatch log groups with retention policies
+    - IAM roles still attached to resources
+    - API Gateway deployments not fully removed
+    
+    **Force delete** (if stuck for >10 minutes):
+    1. AWS Console > CloudFormation
+    2. Select the stack
+    3. Actions > Delete Stack
+    4. Check "Retain resources" for stuck resources
+    5. Manually delete retained resources afterward
+  </Accordion>
+
+  <Accordion title="Orphaned IAM roles">
+    If SAM delete leaves behind IAM roles:
+    
+    **List roles**:
+    ```bash
+    aws iam list-roles --query 'Roles[?starts_with(RoleName, `avp-demo`)].RoleName'
+    ```
+    
+    **Delete manually** (only if SAM delete completed):
+    ```bash
+    aws iam delete-role --role-name avp-demo-CheckAccessFunctionRole-XXXXX
+    ```
+    
+    You may need to detach policies first:
+    ```bash
+    aws iam list-attached-role-policies --role-name ROLE_NAME
+    aws iam detach-role-policy --role-name ROLE_NAME --policy-arn POLICY_ARN
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Re-deploying After Cleanup
+
+If you want to run the demo again:
+
+1. **Policy Store**: Create a new one (Step 1 in setup)
+2. **Schema**: Re-apply the schema JSON (Step 2)
+3. **SAM**: Run `sam build && sam deploy --guided` with the new Policy Store ID
+4. **Frontend**: Update API URLs in HTML files
+5. **Policies**: You'll start with an empty Policy Store (Zero Trust demo)
+
+<Tip>
+  Save your Cedar policies from the first run to quickly rebuild the demo scenarios.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Architecture Overview" icon="diagram-project" href="/architecture/overview">
+  Learn how the demo components work together
+</Card>
+
+<Card title="Cedar Policies" icon="scroll" href="/policies/examples">
+  Explore more Cedar policy patterns and examples
+</Card>
+
+</CardGroup>

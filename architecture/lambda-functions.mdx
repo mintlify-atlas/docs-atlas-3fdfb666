@@ -1,0 +1,474 @@
+---
+title: "Lambda Functions"
+description: "Detailed documentation of each Lambda function in the AVP demo"
+---
+
+## Overview
+
+The application uses three Lambda functions, each with a specific responsibility. All functions are written in Python 3.11 and share common infrastructure configuration.
+
+## Global Configuration
+
+All Lambda functions inherit these global settings from `template.yaml`:
+
+```yaml
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.11
+    Environment:
+      Variables:
+        POLICY_STORE_ID: !Ref PolicyStoreId
+```
+
+<Info>
+The Policy Store ID is automatically available to all functions as an environment variable.
+</Info>
+
+## CheckAccessFunction
+
+### Purpose
+
+Validates whether a user can perform an action on a resource by querying AWS Verified Permissions.
+
+### Configuration
+
+```yaml
+CheckAccessFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-check-access
+    CodeUri: lambda/
+    Handler: app.lambda_handler
+    Description: "Verifica si un usuario puede acceder a un recurso usando AVP"
+```
+
+**Handler**: `app.lambda_handler` in `lambda/app.py:101`
+
+**Endpoint**: `POST /check-access`
+
+**IAM Permissions**:
+```yaml
+Policies:
+  - Statement:
+      - Effect: Allow
+        Action:
+          - verifiedpermissions:IsAuthorized
+        Resource: "*"
+```
+
+### Request Format
+
+```json
+{
+  "user": "alice",
+  "action": "Read",
+  "resource": "Q4-Report-2024"
+}
+```
+
+### Response Format
+
+```json
+{
+  "decision": "ALLOW",
+  "allowed": true,
+  "user": {
+    "id": "alice",
+    "name": "Alice Garcia",
+    "role": "Analyst",
+    "department": "Finance",
+    "avatar": "👩‍💼"
+  },
+  "action": "Read",
+  "resource": "Q4-Report-2024",
+  "resource_info": {
+    "department": "Finance",
+    "classification": "confidential"
+  },
+  "determining_policies": [
+    "policy1"
+  ],
+  "errors": [],
+  "message": "✅ ACCESO PERMITIDO: Alice Garcia puede Read en Q4-Report-2024"
+}
+```
+
+### Implementation Details
+
+#### Demo Data
+
+The function includes hardcoded demo data representing users and resources:
+
+```python
+DEMO_USERS = {
+    "alice": {
+        "name": "Alice Garcia",
+        "department": "Finance",
+        "clearance_level": 2,
+        "role": "Analyst",
+        "avatar": "👩‍💼"
+    },
+    "bob": {
+        "name": "Bob Torres",
+        "department": "Finance",
+        "clearance_level": 3,
+        "role": "Admin",
+        "avatar": "👨‍💻"
+    },
+    "carol": {
+        "name": "Carol Mendez",
+        "department": "HR",
+        "clearance_level": 1,
+        "role": "Auditor",
+        "avatar": "👩‍🔬"
+    },
+}
+
+DEMO_RESOURCES = {
+    "Q4-Report-2024": {"department": "Finance", "classification": "confidential"},
+    "HR-Payroll-2024": {"department": "HR",      "classification": "restricted"},
+    "Sales-Dashboard": {"department": "Sales",   "classification": "internal"},
+}
+```
+
+<Note>
+In production, user attributes would come from your Identity Provider (Cognito, Okta, etc.).
+</Note>
+
+#### Entity List Construction
+
+The `build_entity_list` function creates the entity data required by AVP:
+
+```python
+def build_entity_list(user_id: str, resource_id: str) -> list:
+    """
+    Construye la lista de entidades que AVP necesita para evaluar la politica.
+    Incluye el usuario con sus atributos, su rol, y el recurso.
+    """
+    user = DEMO_USERS[user_id]
+    resource = DEMO_RESOURCES[resource_id]
+
+    entities = [
+        # Entidad: el usuario con sus atributos
+        {
+            "identifier": {
+                "entityType": "FinancialApp::User",
+                "entityId": user_id
+            },
+            "attributes": {
+                "department":      {"string": user["department"]},
+                "clearance_level": {"long":   user["clearance_level"]},
+            },
+            # El usuario es miembro del rol (RBAC via groups)
+            "parents": [
+                {
+                    "entityType": "FinancialApp::Role",
+                    "entityId": user["role"]
+                }
+            ]
+        },
+        # Entidad: el recurso con sus atributos
+        {
+            "identifier": {
+                "entityType": "FinancialApp::Document",
+                "entityId": resource_id
+            },
+            "attributes": {
+                "department":      {"string": resource["department"]},
+                "classification":  {"string": resource["classification"]},
+            },
+            "parents": []
+        }
+    ]
+    return entities
+```
+
+Key points:
+- Users have attributes (department, clearance_level) for ABAC policies
+- Users belong to parent Roles for RBAC policies
+- Resources have attributes (department, classification) for ABAC policies
+
+#### AVP API Call
+
+The function calls AVP's `is_authorized` API (app.py:161):
+
+```python
+avp_response = avp_client.is_authorized(
+    policyStoreId=POLICY_STORE_ID,
+    principal={
+        "entityType": "FinancialApp::User",
+        "entityId":    user_id
+    },
+    action={
+        "actionType": "FinancialApp::Action",
+        "actionId":    action_id
+    },
+    resource={
+        "entityType": "FinancialApp::Document",
+        "entityId":    resource_id
+    },
+    entities={
+        "entityList": build_entity_list(user_id, resource_id)
+    }
+)
+
+decision = avp_response["decision"]  # "ALLOW" or "DENY"
+```
+
+#### Error Handling
+
+The function handles multiple error scenarios:
+
+1. **Invalid JSON**: Returns 400 with expected format
+2. **Missing user/resource**: Returns 400 with available options
+3. **AVP ClientError**: Returns 500 with troubleshooting tips (app.py:212)
+4. **Unexpected errors**: Returns 500 with generic error message
+
+## GetUsersFunction
+
+### Purpose
+
+Provides demo data to populate the frontend UI. This is a helper function for the demo environment.
+
+### Configuration
+
+```yaml
+GetUsersFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-get-users
+    CodeUri: lambda/
+    Handler: users.lambda_handler
+    Description: "Retorna los usuarios demo para la UI"
+```
+
+**Handler**: `users.lambda_handler` in `lambda/users.py:47`
+
+**Endpoint**: `GET /users`
+
+**IAM Permissions**: None (no AWS API calls)
+
+### Response Format
+
+```json
+{
+  "users": [
+    {
+      "id": "alice",
+      "name": "Alice Garcia",
+      "role": "Analyst",
+      "department": "Finance",
+      "clearance": 2,
+      "avatar": "👩‍💼",
+      "description": "Analista Financiera - SIN politica inicial en AVP"
+    }
+  ],
+  "resources": [
+    {
+      "id": "Q4-Report-2024",
+      "label": "📊 Q4 Report 2024",
+      "department": "Finance",
+      "classification": "confidential"
+    }
+  ],
+  "actions": ["Read", "Edit", "Delete"]
+}
+```
+
+### Implementation
+
+This is a simple function that returns static JSON data:
+
+```python
+def lambda_handler(event, context):
+    headers = {
+        "Content-Type":                "application/json",
+        "Access-Control-Allow-Origin": "*",
+    }
+    return {
+        "statusCode": 200,
+        "headers":    headers,
+        "body": json.dumps({
+            "users":     DEMO_USERS,
+            "resources": DEMO_RESOURCES,
+            "actions":   DEMO_ACTIONS,
+        })
+    }
+```
+
+<Info>
+This function doesn't require IAM permissions because it only returns static data - no AWS API calls.
+</Info>
+
+## AgentFunction
+
+### Purpose
+
+AI-powered agent that answers natural language questions about permissions using Claude via Anthropic API.
+
+### Configuration
+
+```yaml
+AgentFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: avp-agent
+    CodeUri: lambda/
+    Handler: agent.lambda_handler
+    Description: "Agente IA que consulta AVP — proxy seguro hacia Anthropic API"
+    Timeout: 60
+    Environment:
+      Variables:
+        POLICY_STORE_ID: !Ref PolicyStoreId
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+```
+
+**Handler**: `agent.lambda_handler` in `lambda/agent.py:183`
+
+**Endpoint**: `POST /agent`
+
+**Timeout**: 60 seconds (longer than other functions to accommodate AI processing)
+
+**IAM Permissions**:
+```yaml
+Policies:
+  - Statement:
+      - Effect: Allow
+        Action:
+          - verifiedpermissions:IsAuthorized
+        Resource: "*"
+```
+
+### Request Format
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can Alice read the Q4 Report?"
+    }
+  ]
+}
+```
+
+### Response Format
+
+```json
+{
+  "response": "Sí, Alice puede leer el Q4 Report...",
+  "messages": [
+    // Full conversation history including tool calls
+  ]
+}
+```
+
+### Implementation Details
+
+The agent function is more complex - see the [AI Agent](/architecture/ai-agent) page for detailed documentation.
+
+Key features:
+- Implements agentic loop with tool use
+- Calls AVP via the `check_avp_access` tool
+- Securely proxies requests to Anthropic API
+- Never exposes API key to frontend
+
+## Common Patterns
+
+### CORS Headers
+
+All functions return CORS headers for browser compatibility:
+
+```python
+headers = {
+    "Content-Type":                "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers":"Content-Type",
+    "Access-Control-Allow-Methods":"POST,OPTIONS",
+}
+```
+
+### OPTIONS Handling
+
+Functions handle preflight OPTIONS requests:
+
+```python
+if event.get("httpMethod") == "OPTIONS":
+    return {"statusCode": 200, "headers": headers, "body": ""}
+```
+
+### Logging
+
+All functions use Python's logging module:
+
+```python
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+logger.info(f"AVP Check: {user_id} -> {action_id} -> {resource_id}")
+```
+
+Logs are automatically sent to CloudWatch Logs.
+
+## Testing Lambda Functions
+
+### Local Testing
+
+Test individual functions:
+
+```bash
+# Test CheckAccessFunction
+echo '{"body":"{\"user\":\"alice\",\"action\":\"Read\",\"resource\":\"Q4-Report-2024\"}"}' | \
+  sam local invoke CheckAccessFunction
+
+# Test GetUsersFunction
+sam local invoke GetUsersFunction
+```
+
+### API Testing
+
+Test via API Gateway:
+
+```bash
+curl -X POST https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/prod/check-access \
+  -H "Content-Type: application/json" \
+  -d '{"user":"alice","action":"Read","resource":"Q4-Report-2024"}'
+```
+
+## Performance Considerations
+
+### Cold Starts
+
+- Python 3.11 runtime has fast cold starts (~500ms)
+- boto3 client initialization happens at module level
+- Consider provisioned concurrency for production
+
+### Timeout Configuration
+
+- Standard functions: 30 seconds (sufficient for AVP calls)
+- Agent function: 60 seconds (accommodates AI processing and multiple tool calls)
+
+### Memory
+
+Default Lambda memory (128 MB) is sufficient for all functions. Monitor CloudWatch metrics and adjust if needed.
+
+## Security Best Practices
+
+1. **Least Privilege IAM**: Functions only have `verifiedpermissions:IsAuthorized` permission
+2. **Environment Variables**: Secrets managed through CloudFormation parameters
+3. **Input Validation**: All functions validate request parameters
+4. **Error Sanitization**: Error messages don't expose sensitive information
+5. **API Key Protection**: Anthropic API key only accessible to AgentFunction
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AVP Integration" icon="shield-check" href="/architecture/avp-integration">
+    Learn how these functions integrate with AWS Verified Permissions
+  </Card>
+  <Card title="AI Agent" icon="robot" href="/architecture/ai-agent">
+    Deep dive into the AgentFunction implementation
+  </Card>
+</CardGroup>

@@ -1,0 +1,284 @@
+---
+title: 'AI Agent'
+description: 'Query permissions using natural language AI agent'
+---
+
+## Endpoint
+
+<ParamField path="method" type="string" default="POST">
+  POST
+</ParamField>
+
+<ParamField path="path" type="string">
+  `/agent`
+</ParamField>
+
+## Overview
+
+This endpoint provides an AI-powered agent that answers permission-related questions using natural language. The agent uses Claude (Anthropic) with tool calling capabilities to query AWS Verified Permissions and provide intelligent responses about access control decisions.
+
+The agent:
+- Accepts conversational queries about permissions
+- Automatically calls the `check_avp_access` tool to verify permissions
+- Explains authorization decisions based on RBAC/ABAC/Cedar policies
+- Supports multi-turn conversations
+- Responds in Spanish
+
+<Warning>
+  This endpoint requires an Anthropic API key configured in the `ANTHROPIC_API_KEY` environment variable.
+</Warning>
+
+## Request
+
+### Request Body
+
+<ParamField body="messages" type="array" required>
+  Array of message objects representing the conversation history. Each message must have a `role` and `content`.
+  
+  <Expandable title="Message object structure">
+    <ParamField body="role" type="string" required>
+      Message role. Either `user` or `assistant`.
+    </ParamField>
+    <ParamField body="content" type="string | array" required>
+      Message content. Can be a string for simple messages or an array of content blocks for tool results.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://[your-api-id].execute-api.[region].amazonaws.com/Prod/agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": "¿Puede Alice leer el Q4-Report-2024?"
+      }
+    ]
+  }'
+```
+
+### Multi-turn Conversation Example
+
+```bash
+curl -X POST https://[your-api-id].execute-api.[region].amazonaws.com/Prod/agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": "¿Puede Alice leer el Q4-Report-2024?"
+      },
+      {
+        "role": "assistant",
+        "content": "Sí, Alice puede leer el Q4-Report-2024..."
+      },
+      {
+        "role": "user",
+        "content": "¿Y puede borrarlo?"
+      }
+    ]
+  }'
+```
+
+## Response
+
+### Success Response (200)
+
+<ResponseField name="response" type="string" required>
+  The agent's natural language response to the query.
+</ResponseField>
+
+<ResponseField name="messages" type="array" required>
+  Complete conversation history including the agent's response and any tool calls made.
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "response": "Sí, Alice Garcia puede leer el Q4-Report-2024. La verificación con AWS Verified Permissions retornó ALLOW. Esto probablemente se debe a que Alice pertenece al departamento de Finance con nivel de clearance 2, y el documento Q4-Report-2024 es un documento confidencial del departamento Finance.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "¿Puede Alice leer el Q4-Report-2024?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01...",
+          "name": "check_avp_access",
+          "input": {
+            "user": "alice",
+            "action": "Read",
+            "resource": "Q4-Report-2024"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_01...",
+          "content": "{\"decision\":\"ALLOW\",\"allowed\":true,...}"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Sí, Alice Garcia puede leer el Q4-Report-2024..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Error Responses
+
+#### 400 - Missing Messages Field
+
+```json
+{
+  "error": "Campo 'messages' requerido"
+}
+```
+
+#### 500 - Anthropic API Error
+
+```json
+{
+  "error": "authentication_error: invalid x-api-key"
+}
+```
+
+#### 500 - Internal Error
+
+```json
+{
+  "error": "Error message details"
+}
+```
+
+## Agent Tool: check_avp_access
+
+The agent has access to one tool that it can call autonomously:
+
+### Tool Definition
+
+```json
+{
+  "name": "check_avp_access",
+  "description": "Verifica en AWS Verified Permissions si un usuario puede ejecutar una acción sobre un recurso. Usuarios: alice (Analyst/Finance), bob (Admin/Finance), carol (Auditor/HR). Acciones: Read, Edit, Delete. Recursos: Q4-Report-2024, HR-Payroll-2024, Sales-Dashboard.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "user": {"type": "string", "description": "alice, bob, o carol"},
+      "action": {"type": "string", "description": "Read, Edit, o Delete"},
+      "resource": {"type": "string", "description": "Q4-Report-2024, HR-Payroll-2024, o Sales-Dashboard"}
+    },
+    "required": ["user", "action", "resource"]
+  }
+}
+```
+
+### Tool Response
+
+The tool returns the same structure as the `/check-access` endpoint.
+
+## Agent System Prompt
+
+The agent operates with the following system instructions:
+
+```
+Eres un agente de seguridad experto en AWS Verified Permissions.
+Responde preguntas sobre permisos usando la herramienta check_avp_access.
+NUNCA asumas el resultado — siempre verifica con la herramienta.
+Si preguntan por múltiples usuarios o recursos, verifica cada combinación.
+Explica brevemente por qué AVP tomó esa decisión (RBAC/ABAC/Cedar).
+Sé conciso. Responde siempre en español.
+```
+
+## Example Queries
+
+The agent can handle various types of permission queries:
+
+### Single User Query
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "¿Puede Bob editar el HR-Payroll-2024?"}
+  ]
+}
+```
+
+### Multiple Users Query
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "¿Quién puede leer el Q4-Report-2024?"}
+  ]
+}
+```
+
+### Comparison Query
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Compara los permisos de Alice y Carol para el Q4-Report-2024"}
+  ]
+}
+```
+
+### Explanation Query
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "¿Por qué Carol no puede borrar documentos?"}
+  ]
+}
+```
+
+## Model Configuration
+
+The agent uses the following Claude configuration:
+
+- **Model**: `claude-haiku-4-5-20251001`
+- **Max Tokens**: 1000
+- **Max Iterations**: 10 (prevents infinite loops)
+- **Tool Use**: Enabled with automatic tool calling
+
+## Architecture Details
+
+The agent implements an agentic loop:
+
+1. Receives user message
+2. Calls Claude API with available tools
+3. If Claude requests tool use → executes tool → returns result to Claude
+4. Repeats until Claude provides final response (`end_turn`)
+5. Returns natural language answer with full conversation history
+
+## Source Code Reference
+
+Implemented in `/lambda/agent.py:183-204` (handler) and `/lambda/agent.py:94-179` (agent loop)
+
+<Note>
+  The agent maintains conversation history across turns, allowing for contextual follow-up questions. Pass the complete `messages` array from the previous response to continue the conversation.
+</Note>
+
+<Tip>
+  The agent will automatically check multiple permission combinations if you ask comparative questions. For example, asking "Who can read the Q4-Report-2024?" will trigger checks for all three users.
+</Tip>

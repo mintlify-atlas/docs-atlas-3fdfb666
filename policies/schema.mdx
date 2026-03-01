@@ -1,0 +1,487 @@
+---
+title: FinancialApp Schema
+description: Complete schema definition for the AWS Verified Permissions demo including entity types, actions, and attributes
+---
+
+# FinancialApp Schema
+
+The FinancialApp schema defines the structure of entities, actions, and their relationships for the AWS Verified Permissions demo. This schema is written in JSON format and loaded into AVP to enable type checking and validation of Cedar policies.
+
+## Complete Schema Definition
+
+```json
+{
+    "FinancialApp": {
+        "entityTypes": {
+            "User": {
+                "shape": {
+                    "type": "Record",
+                    "attributes": {
+                        "department": {
+                            "type": "String",
+                            "required": true
+                        },
+                        "clearance_level": {
+                            "type": "Long",
+                            "required": true
+                        }
+                    }
+                },
+                "memberOfTypes": ["Role"]
+            },
+            "Document": {
+                "shape": {
+                    "type": "Record",
+                    "attributes": {
+                        "classification": {
+                            "type": "String",
+                            "required": true
+                        },
+                        "department": {
+                            "type": "String",
+                            "required": true
+                        }
+                    }
+                }
+            },
+            "Role": {
+                "memberOfTypes": []
+            }
+        },
+        "actions": {
+            "Read": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Document"]
+                }
+            },
+            "Edit": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Document"]
+                }
+            },
+            "Delete": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Document"]
+                }
+            }
+        }
+    }
+}
+```
+
+## Namespace
+
+All entities and actions in this demo are namespaced under `FinancialApp`. This allows you to organize your authorization model and avoid naming conflicts.
+
+Example entity reference:
+```cedar
+FinancialApp::User::"alice"
+FinancialApp::Action::"Read"
+FinancialApp::Document::"Q4-Report-2024"
+```
+
+## Entity Types
+
+The schema defines three entity types: User, Document, and Role.
+
+### User Entity
+
+Represents a user in the system who can perform actions on resources.
+
+<Tabs>
+  <Tab title="Schema Definition">
+    ```json
+    "User": {
+        "shape": {
+            "type": "Record",
+            "attributes": {
+                "department": {
+                    "type": "String",
+                    "required": true
+                },
+                "clearance_level": {
+                    "type": "Long",
+                    "required": true
+                }
+            }
+        },
+        "memberOfTypes": ["Role"]
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Attributes">
+    | Attribute | Type | Required | Description |
+    |-----------|------|----------|-------------|
+    | `department` | String | Yes | The user's department (e.g., "Finance", "HR", "Sales") |
+    | `clearance_level` | Long | Yes | Security clearance level (1-3, higher = more access) |
+  </Tab>
+  
+  <Tab title="Example Entity">
+    ```json
+    {
+      "identifier": {
+        "entityType": "FinancialApp::User",
+        "entityId": "alice"
+      },
+      "attributes": {
+        "department": {"string": "Finance"},
+        "clearance_level": {"long": 2}
+      },
+      "parents": [
+        {
+          "entityType": "FinancialApp::Role",
+          "entityId": "Analyst"
+        }
+      ]
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Usage in Policy">
+    ```cedar
+    permit (
+      principal in FinancialApp::Role::"Analyst",
+      action == FinancialApp::Action::"Read",
+      resource
+    )
+    when {
+      principal.department == resource.department &&
+      principal.clearance_level >= 2
+    };
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  **Key Feature**: The `"memberOfTypes": ["Role"]` field allows Users to be members of Roles. This enables role-based access control (RBAC) using the `principal in Role::"RoleName"` syntax.
+</Info>
+
+### Document Entity
+
+Represents a document or resource that can be accessed by users.
+
+<Tabs>
+  <Tab title="Schema Definition">
+    ```json
+    "Document": {
+        "shape": {
+            "type": "Record",
+            "attributes": {
+                "classification": {
+                    "type": "String",
+                    "required": true
+                },
+                "department": {
+                    "type": "String",
+                    "required": true
+                }
+            }
+        }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Attributes">
+    | Attribute | Type | Required | Description |
+    |-----------|------|----------|-------------|
+    | `classification` | String | Yes | Security level (e.g., "confidential", "restricted", "internal") |
+    | `department` | String | Yes | Owning department (e.g., "Finance", "HR", "Sales") |
+  </Tab>
+  
+  <Tab title="Example Entity">
+    ```json
+    {
+      "identifier": {
+        "entityType": "FinancialApp::Document",
+        "entityId": "Q4-Report-2024"
+      },
+      "attributes": {
+        "department": {"string": "Finance"},
+        "classification": {"string": "confidential"}
+      },
+      "parents": []
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Usage in Policy">
+    ```cedar
+    forbid (
+      principal,
+      action == FinancialApp::Action::"Delete",
+      resource
+    )
+    when {
+      resource.classification == "confidential"
+    };
+    ```
+  </Tab>
+</Tabs>
+
+### Role Entity
+
+Represents a role that users can be assigned to (e.g., Analyst, Admin, Auditor).
+
+```json
+"Role": {
+    "memberOfTypes": []
+}
+```
+
+Roles are simple entities used for grouping users. They don't have attributes but serve as parent entities for Users.
+
+**Example Roles in the Demo:**
+- `FinancialApp::Role::"Analyst"`
+- `FinancialApp::Role::"Admin"`
+- `FinancialApp::Role::"Auditor"`
+
+## Actions
+
+The schema defines three actions that users can perform on documents.
+
+### Read Action
+
+```json
+"Read": {
+    "appliesTo": {
+        "principalTypes": ["User"],
+        "resourceTypes": ["Document"]
+    }
+}
+```
+
+Allows viewing or reading a document. Most restrictive action - typically granted to most users.
+
+### Edit Action
+
+```json
+"Edit": {
+    "appliesTo": {
+        "principalTypes": ["User"],
+        "resourceTypes": ["Document"]
+    }
+}
+```
+
+Allows modifying a document. Requires higher privileges than Read.
+
+### Delete Action
+
+```json
+"Delete": {
+    "appliesTo": {
+        "principalTypes": ["User"],
+        "resourceTypes": ["Document"]
+    }
+}
+```
+
+Allows permanently removing a document. Most privileged action - typically restricted to Admins.
+
+## Demo Data
+
+The demo includes three users and three documents:
+
+### Users
+
+<CardGroup cols={3}>
+  <Card title="Alice Garcia" icon="user">
+    **Role**: Analyst  
+    **Department**: Finance  
+    **Clearance**: Level 2
+    
+    Example analyst user with department-level access
+  </Card>
+  
+  <Card title="Bob Torres" icon="user-shield">
+    **Role**: Admin  
+    **Department**: Finance  
+    **Clearance**: Level 3
+    
+    Administrator with elevated privileges
+  </Card>
+  
+  <Card title="Carol Mendez" icon="user-check">
+    **Role**: Auditor  
+    **Department**: HR  
+    **Clearance**: Level 1
+    
+    Auditor with cross-department read access
+  </Card>
+</CardGroup>
+
+### Documents
+
+<CardGroup cols={3}>
+  <Card title="Q4-Report-2024" icon="file">
+    **Department**: Finance  
+    **Classification**: confidential
+    
+    Quarterly financial report
+  </Card>
+  
+  <Card title="HR-Payroll-2024" icon="file">
+    **Department**: HR  
+    **Classification**: restricted
+    
+    Employee payroll information
+  </Card>
+  
+  <Card title="Sales-Dashboard" icon="file">
+    **Department**: Sales  
+    **Classification**: internal
+    
+    Sales metrics and analytics
+  </Card>
+</CardGroup>
+
+## Entity Construction in Code
+
+When calling AVP's `IsAuthorized` API, you need to pass entity data. Here's how it's done in the Lambda function:
+
+```python
+entities = [
+    # User entity with attributes and role membership
+    {
+        "identifier": {
+            "entityType": "FinancialApp::User",
+            "entityId": "alice"
+        },
+        "attributes": {
+            "department":      {"string": "Finance"},
+            "clearance_level": {"long":   2},
+        },
+        # User is a member of the Analyst role
+        "parents": [
+            {
+                "entityType": "FinancialApp::Role",
+                "entityId": "Analyst"
+            }
+        ]
+    },
+    # Document entity with attributes
+    {
+        "identifier": {
+            "entityType": "FinancialApp::Document",
+            "entityId": "Q4-Report-2024"
+        },
+        "attributes": {
+            "department":      {"string": "Finance"},
+            "classification":  {"string": "confidential"},
+        },
+        "parents": []
+    }
+]
+```
+
+<Warning>
+  The `parents` array is critical for RBAC. Without it, policies using `principal in Role::"RoleName"` won't work.
+</Warning>
+
+## Schema Validation
+
+AWS Verified Permissions uses the schema to validate:
+
+<Steps>
+  <Step title="Policy Syntax">
+    Ensures entity types, actions, and attributes referenced in policies exist in the schema
+  </Step>
+  
+  <Step title="Type Safety">
+    Validates that attributes are compared with correct types (e.g., comparing `clearance_level` with a number, not a string)
+  </Step>
+  
+  <Step title="Required Attributes">
+    Ensures all required attributes are provided when calling `IsAuthorized`
+  </Step>
+  
+  <Step title="Relationships">
+    Validates that entity relationships (like `memberOfTypes`) are correct
+  </Step>
+</Steps>
+
+## Extending the Schema
+
+You can extend this schema for more complex scenarios:
+
+### Adding Attributes
+
+```json
+"User": {
+    "shape": {
+        "type": "Record",
+        "attributes": {
+            "department": {"type": "String", "required": true},
+            "clearance_level": {"type": "Long", "required": true},
+            "manager": {"type": "EntityOrCommon", "name": "User", "required": false},
+            "email": {"type": "String", "required": false}
+        }
+    }
+}
+```
+
+### Adding Actions
+
+```json
+"actions": {
+    "Read": {...},
+    "Edit": {...},
+    "Delete": {...},
+    "Share": {
+        "appliesTo": {
+            "principalTypes": ["User"],
+            "resourceTypes": ["Document"]
+        }
+    },
+    "Archive": {
+        "appliesTo": {
+            "principalTypes": ["User"],
+            "resourceTypes": ["Document"]
+        }
+    }
+}
+```
+
+### Adding Entity Types
+
+```json
+"entityTypes": {
+    "User": {...},
+    "Document": {...},
+    "Role": {...},
+    "Project": {
+        "shape": {
+            "type": "Record",
+            "attributes": {
+                "name": {"type": "String", "required": true},
+                "status": {"type": "String", "required": true}
+            }
+        },
+        "memberOfTypes": []
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Policy Examples" icon="code" href="/policies/examples">
+    See how this schema is used in real Cedar policies
+  </Card>
+  
+  <Card title="RBAC vs ABAC" icon="shield" href="/policies/rbac-abac">
+    Learn different access control patterns using this schema
+  </Card>
+  
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Deploy the demo and see the schema in action
+  </Card>
+  
+  <Card title="Schema Reference" icon="book" href="https://docs.aws.amazon.com/verifiedpermissions/latest/userguide/schema.html">
+    AWS documentation on schema format
+  </Card>
+</CardGroup>

@@ -1,0 +1,408 @@
+---
+title: "AI Agent Usage"
+description: "Use natural language to query AWS Verified Permissions with the AI-powered agent"
+---
+
+<Info>
+  The AI agent provides a natural language interface to AWS Verified Permissions, allowing you to ask questions about access permissions without constructing manual API calls.
+</Info>
+
+## How It Works
+
+The AI agent architecture keeps your Anthropic API key secure while providing intelligent access checking:
+
+```mermaid
+graph LR
+    A[Browser] --> B[API Gateway]
+    B --> C[Lambda /agent]
+    C --> D[Anthropic API Claude Haiku]
+    D --> E[check_avp_access tool]
+    E --> F[Lambda /check-access]
+    F --> G[AWS Verified Permissions]
+    G --> H[ALLOW/DENY]
+```
+
+<Info>
+  **Security Note**: Your Anthropic API Key is stored as an encrypted environment variable in Lambda and is never exposed to the frontend.
+</Info>
+
+## Prerequisites
+
+<Steps>
+<Step title="Deploy with Anthropic API Key">
+
+During SAM deployment, you must provide a valid Anthropic API Key:
+
+```bash
+sam deploy --guided
+```
+
+When prompted for `AnthropicApiKey`, enter your key starting with `sk-ant-`.
+
+<Warning>
+  If you entered `placeholder` during deployment, the AI agent will not function. Redeploy with a valid key:
+  
+  ```bash
+  sam deploy --parameter-overrides AnthropicApiKey=sk-ant-your-actual-key
+  ```
+</Warning>
+
+</Step>
+
+<Step title="Ensure API credits">
+
+Your Anthropic account needs available credits:
+- Minimum recommended: $5
+- Get credits at [console.anthropic.com](https://console.anthropic.com)
+- The demo uses Claude Haiku (~$0.25 per 1M tokens)
+
+</Step>
+
+<Step title="Update frontend configuration">
+
+Make sure `frontend/avp-agent.html` has your correct API Gateway URL (see [Running the Demo](/usage/running-demo)).
+
+</Step>
+</Steps>
+
+## Accessing the Agent
+
+With the local server running:
+
+```bash
+cd avp-demo/frontend
+python3 -m http.server 8000
+```
+
+Open your browser to:
+
+```
+http://localhost:8000/avp-agent.html
+```
+
+## Example Queries
+
+The agent understands natural language questions about AWS Verified Permissions access. Here are example queries you can try:
+
+### Single User Access Checks
+
+<AccordionGroup>
+  <Accordion title="Can Alice read the Q4 report?">
+    ```
+    Can Alice read the Q4-Report-2024?
+    ```
+    
+    The agent will:
+    1. Identify the user: Alice (alice)
+    2. Identify the action: Read
+    3. Identify the resource: Q4-Report-2024
+    4. Call AVP to check access
+    5. Return the decision with explanation
+    
+    **Expected Response**: "Yes, Alice Garcia (Analyst, Finance department) can read Q4-Report-2024. The access is permitted because..."
+  </Accordion>
+
+  <Accordion title="Check Bob's delete permissions">
+    ```
+    Does Bob have permission to delete the HR-Payroll-2024 document?
+    ```
+    
+    The agent interprets:
+    - User: bob
+    - Action: Delete
+    - Resource: HR-Payroll-2024
+    
+    Returns AVP's decision for this specific combination.
+  </Accordion>
+
+  <Accordion title="Carol's access to Sales Dashboard">
+    ```
+    What can Carol do with the Sales-Dashboard?
+    ```
+    
+    The agent will check multiple actions (Read, Edit, Delete) for Carol on the Sales-Dashboard resource and summarize her permissions.
+  </Accordion>
+</AccordionGroup>
+
+### Multi-User Queries
+
+<AccordionGroup>
+  <Accordion title="Compare all users for one resource">
+    ```
+    Check access for all users to the Q4-Report-2024
+    ```
+    
+    The agent will:
+    1. Recognize this requires checking multiple users
+    2. Test Alice, Bob, and Carol
+    3. Test Read, Edit, and Delete actions
+    4. Present a comparative summary
+    
+    **Sample Response**: 
+    ```
+    Checking access to Q4-Report-2024 for all users:
+    
+    Alice Garcia (Analyst, Finance):
+    - Read: ✅ ALLOWED
+    - Edit: 🚫 DENIED
+    - Delete: 🚫 DENIED
+    
+    Bob Torres (Admin, Finance):
+    - Read: ✅ ALLOWED
+    - Edit: ✅ ALLOWED
+    - Delete: ✅ ALLOWED
+    
+    Carol Mendez (Auditor, HR):
+    - Read: ✅ ALLOWED
+    - Edit: 🚫 DENIED
+    - Delete: 🚫 DENIED
+    ```
+  </Accordion>
+
+  <Accordion title="Who can edit what?">
+    ```
+    Which users can edit documents?
+    ```
+    
+    The agent tests Edit action for all users across all resources and presents findings grouped by user or resource.
+  </Accordion>
+</AccordionGroup>
+
+### Analytical Queries
+
+<AccordionGroup>
+  <Accordion title="Audit a specific user">
+    ```
+    Show me everything Alice can access
+    ```
+    
+    Tests all actions on all resources for Alice and provides a complete permission matrix.
+  </Accordion>
+
+  <Accordion title="Find permission gaps">
+    ```
+    Can Carol edit or delete anything?
+    ```
+    
+    Specifically tests destructive actions for the Auditor role.
+  </Accordion>
+
+  <Accordion title="Cross-department access check">
+    ```
+    Can HR users access Finance documents?
+    ```
+    
+    The agent identifies Carol as HR, checks her access to Finance resources (Q4-Report-2024), and explains ABAC rules in effect.
+  </Accordion>
+</AccordionGroup>
+
+## Understanding Agent Responses
+
+The agent interface displays two key sections:
+
+### Chat Area
+
+Shows the conversation between you and the agent:
+- Your queries in standard text
+- Agent responses with authorization decisions
+- Explanations of why AVP made each decision
+
+### Reasoning Log
+
+Displays the agent's internal process:
+- How it interpreted your question
+- Which tools it decided to use
+- API calls to AVP with parameters
+- Raw AVP responses (ALLOW/DENY)
+- Synthesis of multiple checks
+
+<Tip>
+  The reasoning log is valuable for:
+  - Understanding how the agent parsed your question
+  - Debugging unexpected responses
+  - Learning Cedar policy evaluation
+  - Verifying the agent isn't hallucinating (it always calls AVP)
+</Tip>
+
+## Available Users and Resources
+
+The agent has access to these demo entities:
+
+### Users
+
+| ID | Name | Role | Department | Clearance |
+|----|------|------|------------|----------|
+| `alice` | Alice Garcia | Analyst | Finance | 2 |
+| `bob` | Bob Torres | Admin | Finance | 3 |
+| `carol` | Carol Mendez | Auditor | HR | 1 |
+
+### Resources
+
+| ID | Department | Classification |
+|----|------------|----------------|
+| `Q4-Report-2024` | Finance | confidential |
+| `HR-Payroll-2024` | HR | restricted |
+| `Sales-Dashboard` | Sales | internal |
+
+### Actions
+
+- `Read` - View access
+- `Edit` - Modify access
+- `Delete` - Deletion rights
+
+## How the Agent Reasons
+
+The agent uses Claude Haiku with tool calling capabilities:
+
+<Steps>
+<Step title="Parse natural language">
+
+Your query is sent to Claude, which extracts:
+- User identifiers (names or roles)
+- Actions (verbs like "read", "edit", "delete")
+- Resources (document names)
+- Query type (single check vs. audit)
+
+</Step>
+
+<Step title="Plan tool calls">
+
+The agent decides which AVP checks are needed:
+- Single user + resource + action = 1 call
+- "All users" = 3 calls (alice, bob, carol)
+- "All actions" = 3 calls (Read, Edit, Delete)
+- "Everything" = 9 calls (3 users × 3 actions)
+
+</Step>
+
+<Step title="Execute checks">
+
+For each needed check, the agent calls the `check_avp_access` tool:
+
+```python
+check_avp_access(
+    user="alice",
+    action="Read",
+    resource="Q4-Report-2024"
+)
+```
+
+This invokes Lambda → AVP → returns ALLOW or DENY
+
+</Step>
+
+<Step title="Synthesize response">
+
+Claude analyzes all AVP responses and generates a human-friendly explanation:
+- Summarizes what's allowed vs. denied
+- Explains why (role-based, attribute-based, forbid policies)
+- Responds in Spanish (configurable in agent.py:128)
+
+</Step>
+</Steps>
+
+## Agent Limitations
+
+<Warning>
+  The agent is constrained to demo data:
+  - Only 3 users (Alice, Bob, Carol)
+  - Only 3 resources (Q4-Report-2024, HR-Payroll-2024, Sales-Dashboard)
+  - Only 3 actions (Read, Edit, Delete)
+  
+  Queries about non-existent users or resources will return errors.
+</Warning>
+
+### Maximum Iterations
+
+The agent has a maximum of 10 reasoning iterations (see agent.py:133). Complex queries with many checks may hit this limit.
+
+### Language
+
+By default, the agent responds in Spanish. To change this, modify the system prompt in `lambda/agent.py:128`:
+
+```python
+system = (
+    "You are a security expert in AWS Verified Permissions. "
+    "Answer questions about permissions using the check_avp_access tool. "
+    # Change this line:
+    "Always respond in English."  # or your preferred language
+)
+```
+
+Redeploy after changes:
+
+```bash
+sam build && sam deploy
+```
+
+## Cost Considerations
+
+Each query to the agent incurs:
+
+| Component | Cost per Query | Notes |
+|-----------|----------------|-------|
+| Lambda execution | ~$0.0000002 | Usually Free Tier |
+| AVP IsAuthorized | ~$0.00000015 | Per check (3-9 checks typical) |
+| Anthropic API | ~$0.001-0.005 | Claude Haiku, depends on response length |
+
+**Estimated cost per session**: $0.01 - $0.05 for 10-20 queries
+
+<Tip>
+  The main demo (`index.html`) does not use the Anthropic API and costs effectively $0.00 per session (only Lambda + AVP, both Free Tier eligible).
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Agent returns 'Error in Anthropic API'">
+    **Causes**:
+    - Invalid or expired API key
+    - Insufficient credits in Anthropic account
+    - API key not configured during deployment
+    
+    **Solution**:
+    1. Verify your key at [console.anthropic.com](https://console.anthropic.com)
+    2. Check account credits
+    3. Redeploy with valid key:
+       ```bash
+       sam deploy --parameter-overrides AnthropicApiKey=sk-ant-your-key
+       ```
+  </Accordion>
+
+  <Accordion title="Agent says 'Usuario no existe'">
+    You referenced a user that doesn't exist in the demo. Valid users are:
+    - `alice` (Alice Garcia)
+    - `bob` (Bob Torres)
+    - `carol` (Carol Mendez)
+    
+    Try rephrasing with exact names or using "all users".
+  </Accordion>
+
+  <Accordion title="Reasoning log shows tool errors">
+    Check the log for specific error messages:
+    - **"Recurso no existe"**: Resource name incorrect (use Q4-Report-2024, HR-Payroll-2024, or Sales-Dashboard)
+    - **"Error en AVP"**: Check Policy Store ID is correct
+    - **"Error interno"**: Lambda execution error, check CloudWatch logs
+  </Accordion>
+
+  <Accordion title="Agent gives incomplete answers">
+    The agent may hit the 10-iteration limit for very complex queries. Try:
+    - Breaking your question into smaller parts
+    - Being more specific ("Alice's access to Q4 report" vs. "what can everyone do?")
+    - Asking follow-up questions instead of one large query
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Demo Scenarios" icon="film" href="/usage/demo-scenarios">
+  Complete walkthrough of all authorization scenarios
+</Card>
+
+<Card title="Cleanup" icon="trash" href="/usage/cleanup">
+  Remove demo infrastructure when finished
+</Card>
+
+</CardGroup>

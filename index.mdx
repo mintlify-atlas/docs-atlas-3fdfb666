@@ -1,97 +1,119 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: Introduction to AWS Verified Permissions demo
+description: A live demonstration of centralized authorization using AWS Verified Permissions and Cedar policies, featuring an AI agent that queries permissions in natural language
 ---
 
-## Setting up
+<Note>
+  This demo was created for AWS Student Community Day Peru by Gerardo Castro, AWS Security Hero
+</Note>
 
-Get your documentation site up and running in minutes.
+## What is this demo?
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+This is a hands-on demonstration of **AWS Verified Permissions (AVP)**, a managed service that provides centralized, fine-grained authorization for your applications. The demo showcases how to implement Zero Trust access control using Cedar policy language, without requiring VPNs or complex infrastructure.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Zero Trust by default" icon="shield-halved">
+    All access is denied unless explicitly permitted by a Cedar policy. No implicit trust, no backdoors.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  
+  <Card title="Real-time policy updates" icon="bolt">
+    Change authorization rules instantly without redeploying code or restarting services.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  
+  <Card title="Attribute-based access control" icon="sliders">
+    Make decisions based on user attributes (department, clearance level) and resource properties (classification, owner).
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  
+  <Card title="AI-powered permissions" icon="robot">
+    Includes an AI agent that queries AVP using natural language, demonstrating agentic authorization workflows.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Architecture overview
 
-Everything you need to create world-class documentation.
+The demo uses a serverless architecture built with AWS SAM (Serverless Application Model):
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+```
+Browser (Frontend)
+   ↓
+API Gateway
+   ↓
+Lambda Functions:
+  • /check-access → Calls AVP IsAuthorized API
+  • /users        → Returns demo users and resources
+  • /agent        → AI agent with Anthropic Claude
+       ↓
+   AWS Verified Permissions
+       ↓
+   Cedar Policies → ALLOW or DENY
+```
 
-## Need inspiration?
+### Key components
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+**Lambda Functions:**
+- `app.py` - Verifies access requests using AVP's `IsAuthorized` API
+- `users.py` - Helper function that returns demo users and resources for the UI
+- `agent.py` - AI agent that acts as a secure proxy to Anthropic's API, with AVP tool integration
+
+**Frontend:**
+- `index.html` - Main interactive lab for testing AVP policies
+- `avp-agent.html` - AI agent interface with natural language queries
+- `avp-level3-concept.html` - Concept demonstration of natural language to Cedar translation
+
+## What you'll learn
+
+Through this demo, you'll understand:
+
+1. **Zero Trust principles** - How AVP enforces deny-by-default authorization
+2. **Cedar policy language** - Write human-readable policies that control access
+3. **RBAC (Role-Based Access Control)** - Use roles like Analyst, Admin, and Auditor
+4. **ABAC (Attribute-Based Access Control)** - Make decisions based on context like department matching
+5. **Policy precedence** - How `forbid` always wins over `permit`
+6. **Agentic AI with authorization** - How AI agents can securely query permission systems
+
+## Demo scenario
+
+The demo simulates a financial application with three users:
+
+- **Alice Garcia** - Analyst in Finance department (clearance level 2)
+- **Bob Torres** - Admin in Finance department (clearance level 3)  
+- **Carol Mendez** - Auditor in HR department (clearance level 1)
+
+These users attempt to perform actions (`Read`, `Edit`, `Delete`) on three documents:
+
+- **Q4-Report-2024** - Confidential Finance document
+- **HR-Payroll-2024** - Restricted HR document
+- **Sales-Dashboard** - Internal Sales document
+
+You'll create Cedar policies that control who can access what, based on roles, departments, and clearance levels.
+
+## Cost considerations
+
+<Warning>
+  The AI agent feature requires an Anthropic API key and will incur costs. The main AVP lab is essentially free within AWS Free Tier limits.
+</Warning>
+
+| Component | Cost | Required for |
+|-----------|------|-------------|
+| AWS Lambda | Free (Free Tier: 1M requests/month) | All features |
+| API Gateway | Free (Free Tier: 1M calls/month) | All features |
+| AWS Verified Permissions | ~$0.00015 per 1,000 requests | All features |
+| Anthropic API | ~$0.25 per 1M tokens (Haiku) | AI agent only |
+| **Main lab** | **≈ $0.00** | `index.html` |
+| **With AI agent** | **≈ $0.01 - $0.05 per session** | `avp-agent.html` |
+
+<Note>
+  You can skip the AI agent portion by using `placeholder` as your Anthropic API key during deployment. The main AVP demo works without it.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Check prerequisites" icon="list-check" href="/prerequisites">
+    Ensure you have the required tools installed
+  </Card>
+  
+  <Card title="Start the quickstart" icon="rocket" href="/quickstart">
+    Deploy the demo in under 15 minutes
+  </Card>
+</CardGroup>

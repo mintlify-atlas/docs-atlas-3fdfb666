@@ -1,0 +1,423 @@
+---
+title: Frontend Configuration
+description: Configure and run the frontend web applications
+---
+
+The demo includes three HTML-based web applications that connect to your deployed backend API. This page shows you how to configure and run them locally.
+
+## Frontend Applications
+
+The project includes three web applications:
+
+| File | Purpose | Features |
+|------|---------|----------|
+| `index.html` | Main AVP demo lab | Interactive access control testing with AVP |
+| `avp-agent.html` | AI agent interface | Natural language queries to AVP using Claude |
+| `avp-level3-concept.html` | Level 3 concept demo | Experimental: natural language to Cedar policies |
+
+<Note>
+  All three applications are static HTML files with embedded JavaScript. No build process or npm dependencies required.
+</Note>
+
+## Configure API URL
+
+You need to update the API Gateway URL in the HTML files to point to your deployed backend.
+
+<Warning>
+  You must update the API URL before running the frontend. Without this, the applications cannot communicate with your Lambda functions.
+</Warning>
+
+<Steps>
+  <Step title="Locate your API URL">
+    From the SAM deployment output (previous step), copy the `ApiUrl`:
+    ```
+    https://abc123def4.execute-api.us-west-2.amazonaws.com/prod
+    ```
+    
+    <Note>
+      The URL should end with `/prod` — this is the API Gateway stage name.
+    </Note>
+  </Step>
+
+  <Step title="Update index.html">
+    Open `frontend/index.html` in your text editor and find line ~841:
+    
+    ```javascript
+    // ─── CONFIGURATION ────────────────────────────────────────
+    // 👇 REEMPLAZA con tu API Gateway URL después del deploy con SAM
+    const API_BASE_URL = "https://vnly0xey30.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+    
+    Replace the URL with your API Gateway URL:
+    
+    ```javascript
+    const API_BASE_URL = "https://abc123def4.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+    
+    <Warning>
+      Do NOT add any path after `/prod`. The code will append paths like `/check-access` and `/users` automatically.
+    </Warning>
+  </Step>
+
+  <Step title="Update avp-agent.html">
+    Open `frontend/avp-agent.html` in your text editor and find line ~219:
+    
+    ```javascript
+    const API_BASE = "https://vnly0xey30.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+    
+    Replace the URL with your API Gateway URL:
+    
+    ```javascript
+    const API_BASE = "https://abc123def4.execute-api.us-west-2.amazonaws.com/prod";
+    ```
+  </Step>
+
+  <Step title="Update avp-level3-concept.html (optional)">
+    If you plan to use the Level 3 concept demo, update the API URL in `avp-level3-concept.html` as well.
+    
+    <Note>
+      This file may require entering your Anthropic API key directly in the UI. It's an experimental feature and not part of the main demo flow.
+    </Note>
+  </Step>
+</Steps>
+
+## Run Local Server
+
+The frontend files must be served over HTTP (not opened with `file://`) to avoid CORS issues.
+
+<Steps>
+  <Step title="Navigate to frontend directory">
+    ```bash
+    cd ~/workspace/source/frontend
+    ```
+  </Step>
+
+  <Step title="Start Python HTTP server">
+    ```bash
+    python3 -m http.server 8000
+    ```
+    
+    You should see:
+    ```
+    Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+    ```
+  </Step>
+
+  <Step title="Keep the server running">
+    Leave this terminal window open. The server will continue running until you stop it with `Ctrl+C`.
+  </Step>
+</Steps>
+
+<Warning>
+  Do NOT open the HTML files directly with `file://` URLs. Modern browsers block API requests from `file://` origins due to CORS security policies. Always use `http://localhost:8000`.
+</Warning>
+
+## Access the Applications
+
+With the server running, open your web browser and navigate to:
+
+### Main AVP Lab
+
+```
+http://localhost:8000/index.html
+```
+
+**What it does:**
+- Interactive UI to test AVP authorization decisions
+- Select users, resources, and actions to check access
+- View real-time ALLOW/DENY decisions from AVP
+- See the Cedar policy evaluation results
+
+**Required setup:**
+- Policy Store ID (you'll enter this in the UI)
+- Backend API deployed
+- No Anthropic API key needed
+
+### AI Agent Interface
+
+```
+http://localhost:8000/avp-agent.html
+```
+
+**What it does:**
+- Natural language interface to query AVP
+- Ask questions like "Can Alice read the Q4 report?"
+- AI agent reasons about access control and calls AVP
+- Shows detailed logs of AVP API calls
+
+**Required setup:**
+- Policy Store ID
+- Backend API deployed
+- Valid Anthropic API key configured during SAM deployment
+
+<Warning>
+  If you used `placeholder` for the Anthropic API key during deployment, this interface will not work. You'll need to redeploy with a valid API key.
+</Warning>
+
+### Level 3 Concept Demo
+
+```
+http://localhost:8000/avp-level3-concept.html
+```
+
+**What it does:**
+- Experimental: converts natural language to Cedar policies
+- Uses AI to generate policy recommendations
+- Educational tool for understanding Cedar syntax
+
+<Note>
+  This is a concept demonstration and not part of the main demo flow. Use it to explore how AI can assist with policy authoring.
+</Note>
+
+## Using the Main Lab
+
+Here's how to use the main AVP demo interface:
+
+<Steps>
+  <Step title="Open the application">
+    Navigate to `http://localhost:8000/index.html` in your browser.
+  </Step>
+
+  <Step title="Enter Policy Store ID">
+    In the configuration section at the top, paste your Policy Store ID:
+    ```
+    PS1a2b3c4d5e6f7g8h9i0
+    ```
+    
+    This tells the application which AVP policy store to query.
+  </Step>
+
+  <Step title="Select a user">
+    Choose a user from the dropdown:
+    - Alice Garcia (Analyst, Finance)
+    - Bob Smith (Manager, Finance)
+    - Carol Mendez (Auditor, HR)
+    - David Lee (Engineer, IT)
+  </Step>
+
+  <Step title="Select a resource">
+    Choose a document to access:
+    - Q4-Report-2024 (Finance, Confidential)
+    - Employee-Handbook (HR, Public)
+    - Salary-Data-2024 (HR, Secret)
+    - Infrastructure-Diagram (IT, Confidential)
+  </Step>
+
+  <Step title="Select an action">
+    Choose what action to perform:
+    - Read
+    - Edit
+    - Delete
+  </Step>
+
+  <Step title="Check access">
+    Click the **"Check Access"** button.
+    
+    The application will:
+    1. Send a POST request to `/check-access`
+    2. Lambda calls AVP's `IsAuthorized` API
+    3. AVP evaluates Cedar policies
+    4. Returns ALLOW or DENY decision
+    
+    You'll see the result displayed prominently with:
+    - Decision (ALLOW/DENY)
+    - Determining policies (which policies led to this decision)
+    - Errors (if any evaluation errors occurred)
+  </Step>
+</Steps>
+
+## Using the AI Agent
+
+<Steps>
+  <Step title="Open the agent interface">
+    Navigate to `http://localhost:8000/avp-agent.html` in your browser.
+  </Step>
+
+  <Step title="Enter your query in natural language">
+    Type a question in the chat input, such as:
+    - "Can Alice read the Q4 Report?"
+    - "Check access for all users to the Q4-Report-2024"
+    - "What documents can Carol access?"
+    - "Verify if Bob can delete any Finance documents"
+  </Step>
+
+  <Step title="View the AI response">
+    The agent will:
+    1. Parse your natural language query
+    2. Determine which AVP checks to perform
+    3. Call the `/agent` endpoint which queries Anthropic's Claude
+    4. Claude uses the `check_avp_access` tool to call AVP
+    5. Return a natural language explanation of the results
+    
+    You'll see:
+    - AI's reasoning process
+    - Which AVP calls were made
+    - ALLOW/DENY results
+    - Natural language summary
+  </Step>
+
+  <Step title="View detailed logs">
+    The right sidebar shows:
+    - API call logs
+    - AVP authorization requests/responses
+    - Timing information
+    - Any errors encountered
+  </Step>
+</Steps>
+
+## Architecture: How Frontend Connects to Backend
+
+```
+Browser (localhost:8000/index.html)
+    |
+    | HTTP POST to API_BASE_URL/check-access
+    |
+    v
+API Gateway (prod stage)
+    |
+    v
+Lambda: avp-check-access
+    |
+    | boto3 call: verifiedpermissions.is_authorized()
+    |
+    v
+AWS Verified Permissions
+    |
+    | Evaluates Cedar policies
+    |
+    v
+RETURN: { "decision": "ALLOW" | "DENY" }
+```
+
+### Security Notes
+
+<Warning>
+  The frontend is designed for demo and educational purposes. In production:
+  - Add authentication to API Gateway (Cognito, API keys, IAM)
+  - Use HTTPS for all connections (API Gateway provides this by default)
+  - Implement rate limiting
+  - Add input validation
+  - Don't expose Policy Store IDs in client-side code
+</Warning>
+
+### CORS Configuration
+
+The API Gateway has CORS enabled with these settings (from `template.yaml`):
+
+```yaml
+Cors:
+  AllowMethods: "'POST,GET,OPTIONS'"
+  AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+  AllowOrigin: "'*'"
+```
+
+- `AllowOrigin: '*'` allows requests from any origin (including `localhost:8000`)
+- In production, restrict this to your actual domain
+
+## Troubleshooting
+
+### "Failed to fetch" errors in browser console
+
+**Cause**: API URL is incorrect or the API is not deployed
+
+**Solutions**:
+1. Verify the API URL is correct in the HTML file
+2. Test the API directly: `curl https://YOUR_API_URL/users`
+3. Check CloudFormation stack status: `aws cloudformation describe-stacks --stack-name avp-demo`
+
+### CORS errors
+
+**Error**: `Access to fetch at 'https://...' from origin 'file://' has been blocked by CORS`
+
+**Cause**: Opening HTML file with `file://` instead of `http://`
+
+**Solution**: Always use `python3 -m http.server 8000` and access via `http://localhost:8000`
+
+### "DENY" for all requests
+
+**Cause**: No policies created in the policy store yet
+
+**Expected**: This is Zero Trust in action! AVP denies by default until you create policies.
+
+**Solution**: Follow the demo flow to create Cedar policies in the AVP console
+
+### AI agent not responding
+
+**Cause**: Invalid or missing Anthropic API key
+
+**Solutions**:
+1. Verify you provided a valid API key during SAM deployment
+2. Check Lambda environment variables in AWS Console
+3. Redeploy with correct API key: `sam build && sam deploy`
+
+### Policy Store ID not accepted
+
+**Error**: "Invalid Policy Store ID" in the UI
+
+**Solutions**:
+1. Verify the Policy Store ID starts with `PS`
+2. Ensure the policy store exists in the same region as your API
+3. Check for extra spaces or characters when pasting
+
+## Testing the Complete Flow
+
+Verify everything is working:
+
+<Steps>
+  <Step title="Test the /users endpoint">
+    ```bash
+    curl https://YOUR_API_URL/users
+    ```
+    
+    Should return JSON with users and documents.
+  </Step>
+
+  <Step title="Test access check">
+    ```bash
+    curl -X POST https://YOUR_API_URL/check-access \
+      -H "Content-Type: application/json" \
+      -d '{
+        "policyStoreId": "PS1a2b3c4d5e6f7g8h9i0",
+        "principal": "FinancialApp::User::alice@example.com",
+        "action": "FinancialApp::Action::Read",
+        "resource": "FinancialApp::Document::Q4-Report-2024",
+        "context": {},
+        "entities": { "entityList": [] }
+      }'
+    ```
+    
+    Should return:
+    ```json
+    {
+      "decision": "DENY",
+      "determiningPolicies": [],
+      "errors": []
+    }
+    ```
+    
+    (DENY is expected before creating policies)
+  </Step>
+
+  <Step title="Test the UI">
+    Open `http://localhost:8000/index.html`, enter your Policy Store ID, select Alice → Q4-Report-2024 → Read, and click "Check Access".
+    
+    You should see a DENY decision displayed in the UI.
+  </Step>
+</Steps>
+
+## Next Steps
+
+Your deployment is complete! You're now ready to run the live demo:
+
+<Card title="Return to Main Guide" icon="book-open" href="/index">
+  Learn how to present the demo and create Cedar policies
+</Card>
+
+Or explore the demo flow:
+
+- **Act 1**: Test Zero Trust (default DENY)
+- **Act 2**: Create your first Cedar policy and see ALLOW
+- **Act 3**: Add ABAC policies with user/document attributes
+- **Act 4**: Use `forbid` to override `permit`
+- **Act 5**: Try the AI agent with natural language queries

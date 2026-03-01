@@ -1,0 +1,200 @@
+---
+title: 'Get Users'
+description: 'Retrieve demo users, resources, and available actions'
+---
+
+## Endpoint
+
+<ParamField path="method" type="string" default="GET">
+  GET
+</ParamField>
+
+<ParamField path="path" type="string">
+  `/users`
+</ParamField>
+
+## Overview
+
+This endpoint returns the complete demo dataset including all users, resources, and actions available in the application. It's primarily used by the frontend to populate the UI with available options.
+
+This is a simple, read-only endpoint that returns static demo data. No request parameters are required.
+
+## Request
+
+No request body or parameters required.
+
+### Example Request
+
+```bash
+curl -X GET https://[your-api-id].execute-api.[region].amazonaws.com/Prod/users
+```
+
+## Response
+
+### Success Response (200)
+
+<ResponseField name="users" type="array" required>
+  Array of user objects with their attributes.
+  
+  <Expandable title="User object properties">
+    <ResponseField name="id" type="string">
+      Unique user identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Full name of the user
+    </ResponseField>
+    <ResponseField name="role" type="string">
+      User's role (Analyst, Admin, Auditor)
+    </ResponseField>
+    <ResponseField name="department" type="string">
+      Department the user belongs to
+    </ResponseField>
+    <ResponseField name="clearance" type="number">
+      Clearance level (1-3)
+    </ResponseField>
+    <ResponseField name="avatar" type="string">
+      Emoji avatar for UI display
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Description of the user's permissions and role
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="resources" type="array" required>
+  Array of resource/document objects.
+  
+  <Expandable title="Resource object properties">
+    <ResponseField name="id" type="string">
+      Unique resource identifier
+    </ResponseField>
+    <ResponseField name="label" type="string">
+      Display label with emoji
+    </ResponseField>
+    <ResponseField name="department" type="string">
+      Department that owns the resource
+    </ResponseField>
+    <ResponseField name="classification" type="string">
+      Security classification (confidential, restricted, internal)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="actions" type="array" required>
+  Array of available action strings.
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "users": [
+    {
+      "id": "alice",
+      "name": "Alice Garcia",
+      "role": "Analyst",
+      "department": "Finance",
+      "clearance": 2,
+      "avatar": "👩‍💼",
+      "description": "Analista Financiera - SIN politica inicial en AVP"
+    },
+    {
+      "id": "bob",
+      "name": "Bob Torres",
+      "role": "Admin",
+      "department": "Finance",
+      "clearance": 3,
+      "avatar": "👨‍💻",
+      "description": "Administrador - Tiene politica RBAC Admin en AVP"
+    },
+    {
+      "id": "carol",
+      "name": "Carol Mendez",
+      "role": "Auditor",
+      "department": "HR",
+      "clearance": 1,
+      "avatar": "👩‍🔬",
+      "description": "Auditora HR - Solo puede leer, no editar ni borrar"
+    }
+  ],
+  "resources": [
+    {
+      "id": "Q4-Report-2024",
+      "label": "📊 Q4 Report 2024",
+      "department": "Finance",
+      "classification": "confidential"
+    },
+    {
+      "id": "HR-Payroll-2024",
+      "label": "💰 HR Payroll 2024",
+      "department": "HR",
+      "classification": "restricted"
+    },
+    {
+      "id": "Sales-Dashboard",
+      "label": "📈 Sales Dashboard",
+      "department": "Sales",
+      "classification": "internal"
+    }
+  ],
+  "actions": [
+    "Read",
+    "Edit",
+    "Delete"
+  ]
+}
+```
+
+## Demo Users Details
+
+### Alice Garcia - Analyst
+
+- **Role**: Analyst
+- **Department**: Finance
+- **Clearance Level**: 2
+- **Initial Permissions**: None (requires policy creation)
+- **Use Case**: Demonstrates adding new RBAC/ABAC policies
+
+### Bob Torres - Admin
+
+- **Role**: Admin
+- **Department**: Finance
+- **Clearance Level**: 3
+- **Initial Permissions**: Full access via RBAC Admin role
+- **Use Case**: Demonstrates role-based access control
+
+### Carol Mendez - Auditor
+
+- **Role**: Auditor
+- **Department**: HR
+- **Clearance Level**: 1
+- **Initial Permissions**: Read-only access
+- **Use Case**: Demonstrates restricted auditor permissions
+
+## Demo Resources Details
+
+### Q4-Report-2024
+
+- **Department**: Finance
+- **Classification**: Confidential
+- **Access Pattern**: Finance department with sufficient clearance
+
+### HR-Payroll-2024
+
+- **Department**: HR
+- **Classification**: Restricted
+- **Access Pattern**: HR department and auditors
+
+### Sales-Dashboard
+
+- **Department**: Sales
+- **Classification**: Internal
+- **Access Pattern**: Typically cross-department access allowed
+
+## Source Code Reference
+
+Implemented in `/lambda/users.py:47-60`
+
+<Note>
+  This endpoint returns static demo data. In a production application, this would query a user directory service like Amazon Cognito or an enterprise IdP.
+</Note>

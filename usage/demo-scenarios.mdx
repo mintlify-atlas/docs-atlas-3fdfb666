@@ -1,0 +1,335 @@
+---
+title: "Demo Scenarios"
+description: "Complete walkthrough of all 5 demonstration acts covering Zero Trust, Cedar policies, ABAC, and forbid precedence"
+---
+
+<Warning>
+  **Before starting**: Ensure your Policy Store has **no policies created**. The demo flow assumes you're starting from an empty policy store to demonstrate deny-by-default behavior.
+</Warning>
+
+This demo showcases AWS Verified Permissions through five progressive scenarios that build on each other. Follow them in order for the complete experience.
+
+## Demo Users and Resources
+
+The demo includes three pre-configured users with different roles and attributes:
+
+### Users
+
+| User | Role | Department | Clearance Level | Description |
+|------|------|------------|-----------------|-------------|
+| **Alice Garcia** 👩‍💼 | Analyst | Finance | 2 | Financial analyst with no initial policy |
+| **Bob Torres** 👨‍💻 | Admin | Finance | 3 | Administrator with RBAC Admin policy |
+| **Carol Mendez** 👩‍🔬 | Auditor | HR | 1 | HR auditor with read-only access |
+
+### Resources
+
+| Resource | Department | Classification | Description |
+|----------|------------|----------------|-------------|
+| 📊 **Q4-Report-2024** | Finance | confidential | Q4 financial report |
+| 💰 **HR-Payroll-2024** | HR | restricted | HR payroll data |
+| 📈 **Sales-Dashboard** | Sales | internal | Sales metrics dashboard |
+
+### Actions
+
+- **Read** - View the document
+- **Edit** - Modify the document
+- **Delete** - Remove the document
+
+---
+
+## Act 1: Zero Trust — Deny by Default
+
+**Concept**: In a Zero Trust architecture, all access is denied by default, even for authenticated users.
+
+<Steps>
+<Step title="Select Alice Garcia">
+
+In the demo UI, select **Alice Garcia** from the user dropdown.
+
+- Role: Analyst
+- Department: Finance
+- Clearance: Level 2
+
+</Step>
+
+<Step title="Attempt to read Q4-Report-2024">
+
+1. Select **Q4-Report-2024** from the resources dropdown
+2. Choose **Read** as the action
+3. Click **Check Access**
+
+</Step>
+
+<Step title="Observe DENY result">
+
+Result: 🚫 **DENY**
+
+Even though Alice:
+- Has valid credentials
+- Works in the Finance department (same as the document)
+- Has appropriate clearance level
+
+AVP returns **DENY** because there are no policies explicitly allowing access.
+
+</Step>
+</Steps>
+
+<Info>
+  **Key Takeaway**: This is Zero Trust in action. Authentication (proving who you are) doesn't grant authorization (what you can do). Every access request requires explicit permission.
+</Info>
+
+---
+
+## Act 2: Cedar Policy in Real-Time
+
+**Concept**: Cedar policies control access and activate instantly without code changes or redeployment.
+
+<Steps>
+<Step title="Create your first Cedar policy">
+
+In the AWS Console:
+
+1. Navigate to **Verified Permissions** > Your Policy Store
+2. Click **Policies** > **Create** > **Static policy**
+3. Enter policy name: `AllowAnalystReadOwnDepartment`
+4. Add this Cedar policy:
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Analyst",
+  action == FinancialApp::Action::"Read",
+  resource
+)
+when {
+  principal.department == resource.department
+};
+```
+
+5. Click **Save**
+
+</Step>
+
+<Step title="Repeat the access check">
+
+Return to the demo UI and repeat Alice's request:
+
+- User: **Alice Garcia** (Analyst, Finance)
+- Resource: **Q4-Report-2024** (Finance)
+- Action: **Read**
+
+</Step>
+
+<Step title="Observe ALLOW result">
+
+Result: ✅ **ALLOW**
+
+The same request that was denied moments ago is now allowed.
+
+</Step>
+</Steps>
+
+<Info>
+  **Key Takeaway**: You didn't change any application code. You didn't redeploy anything. You simply added a Cedar policy, and authorization behavior changed immediately. This is centralized policy management.
+</Info>
+
+### Understanding the Policy
+
+This policy grants access when:
+- The principal (user) has the **Analyst** role
+- The action is **Read**
+- The user's department matches the resource's department (ABAC condition)
+
+---
+
+## Act 3: Attribute-Based Access Control (ABAC)
+
+**Concept**: Access decisions based on attributes of the user, resource, and context rather than just roles.
+
+<Steps>
+<Step title="Test cross-department access">
+
+Select **Carol Mendez** in the UI:
+
+- Role: Auditor
+- Department: **HR**
+
+Try to read **Q4-Report-2024**:
+
+- Department: **Finance**
+- Action: **Read**
+
+Result: 🚫 **DENY**
+
+</Step>
+
+<Step title="Create an Auditor policy">
+
+Carol is denied because she's in HR, not Finance. The existing policy requires department match.
+
+Create a new policy for auditors:
+
+Name: `AllowAuditorReadAll`
+
+```cedar
+permit (
+  principal in FinancialApp::Role::"Auditor",
+  action == FinancialApp::Action::"Read",
+  resource
+);
+```
+
+</Step>
+
+<Step title="Verify cross-department access">
+
+Repeat Carol's request to read **Q4-Report-2024**.
+
+Result: ✅ **ALLOW**
+
+Carol can now read documents across departments because of her Auditor role.
+
+</Step>
+</Steps>
+
+<Info>
+  **Key Takeaway**: This demonstrates ABAC in action. The authorization decision considers:
+  - **Principal attributes**: Carol's role (Auditor) and department (HR)
+  - **Resource attributes**: Document's department (Finance) and classification
+  - **Policy conditions**: Role-based permissions that override department boundaries
+</Info>
+
+---
+
+## Act 4: Forbid Precedence Over Permit
+
+**Concept**: In Cedar, `forbid` policies always take precedence over `permit` policies, with no exceptions.
+
+<Steps>
+<Step title="Test Carol's edit access">
+
+With Carol still selected:
+
+- Resource: **Q4-Report-2024**
+- Action: **Edit**
+
+Result: 🚫 **DENY**
+
+Carol can read but not edit because the Auditor policy only permits Read actions.
+
+</Step>
+
+<Step title="Create a forbid policy">
+
+Let's explicitly forbid auditors from making changes:
+
+Name: `ForbidAuditorModifications`
+
+```cedar
+forbid (
+  principal in FinancialApp::Role::"Auditor",
+  action in [FinancialApp::Action::"Edit", FinancialApp::Action::"Delete"],
+  resource
+);
+```
+
+</Step>
+
+<Step title="Verify forbid enforcement">
+
+Try Carol editing the document again.
+
+Result: 🚫 **DENY**
+
+Now, even if you create a permit policy that allows Auditors to edit, the forbid will always win.
+
+</Step>
+</Steps>
+
+<Info>
+  **Key Takeaway**: The `forbid` keyword creates non-overridable denials. This is crucial for security guardrails:
+  - Compliance requirements (e.g., "auditors must never modify records")
+  - Regulatory constraints
+  - Security boundaries that should never be crossed
+  
+  No matter how many permit policies exist, a single forbid blocks access.
+</Info>
+
+---
+
+## Act 5: AI Agent with Natural Language
+
+**Concept**: Combine AWS Verified Permissions with AI to enable natural language authorization queries.
+
+<Note>
+  This scenario requires a valid Anthropic API Key configured during deployment. If you used `placeholder`, see the [AI Agent Usage](/usage/ai-agent) page for setup instructions.
+</Note>
+
+<Steps>
+<Step title="Open the AI Agent interface">
+
+Navigate to `http://localhost:8000/avp-agent.html`
+
+</Step>
+
+<Step title="Ask a complex question">
+
+Try asking:
+
+> "Check access for all users to the Q4-Report-2024"
+
+The AI agent will:
+1. Parse your natural language query
+2. Determine it needs to check multiple users
+3. Call the AVP API for each user
+4. Synthesize the results into a human-readable response
+
+</Step>
+
+<Step title="Review the reasoning log">
+
+The agent interface shows:
+- How it interpreted your question
+- Which API calls it made to AVP
+- The authorization decisions for each user
+- A summary explanation
+
+</Step>
+</Steps>
+
+<Info>
+  **Key Takeaway**: The AI agent provides a natural language interface to your authorization system. It can:
+  - Answer "what if" questions about access
+  - Audit permissions across users and resources
+  - Explain authorization decisions in plain language
+  - Help debug policy configurations
+  
+  The agent uses AWS Verified Permissions as its source of truth, ensuring responses are based on actual policy evaluations, not hallucinations.
+</Info>
+
+---
+
+## Demo Summary
+
+Here's a complete matrix of the demo scenarios:
+
+| Act | User | Action | Resource | Initial Result | After Policy | Concept Demonstrated |
+|-----|------|--------|----------|----------------|--------------|---------------------|
+| 1 | Alice (Analyst/Finance) | Read | Q4-Report-2024 (Finance) | 🚫 DENY | — | Zero Trust: deny by default |
+| 2 | Alice (Analyst/Finance) | Read | Q4-Report-2024 (Finance) | 🚫 DENY | ✅ ALLOW | Cedar policies activate in real-time |
+| 3 | Carol (Auditor/HR) | Read | Q4-Report-2024 (Finance) | 🚫 DENY | ✅ ALLOW | ABAC: attributes control access |
+| 4 | Carol (Auditor/HR) | Edit | Q4-Report-2024 (Finance) | 🚫 DENY | 🚫 DENY | forbid always wins over permit |
+| 5 | Multiple users | Multiple | Multiple resources | Varies | Varies | AI + AVP for natural language queries |
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="AI Agent Usage" icon="robot" href="/usage/ai-agent">
+  Deep dive into the AI agent features and example queries
+</Card>
+
+<Card title="Cedar Policy Examples" icon="scroll" href="/policies/examples">
+  Explore more Cedar policy patterns
+</Card>
+
+</CardGroup>

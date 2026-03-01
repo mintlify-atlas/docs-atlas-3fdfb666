@@ -1,0 +1,90 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "AWS Verified Permissions Demo",
+  "projectDescription": "Live demo showcasing AWS Verified Permissions with Cedar policies, serverless architecture, and AI-powered authorization queries",
+  "theme": "aspen",
+  "primaryColor": "#FF9900",
+  "lightColor": "#232F3E",
+  "darkColor": "#FF9900",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "prerequisites",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/policy-store",
+              "deployment/sam-deploy",
+              "deployment/frontend-config"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/lambda-functions",
+              "architecture/avp-integration",
+              "architecture/ai-agent"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/running-demo",
+              "usage/demo-scenarios",
+              "usage/ai-agent",
+              "usage/cleanup"
+            ]
+          },
+          {
+            "group": "Cedar Policies",
+            "pages": [
+              "policies/overview",
+              "policies/schema",
+              "policies/examples",
+              "policies/rbac-abac"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/check-access",
+              "api/get-users",
+              "api/agent"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AWS Verified Permissions integration with Cedar policy language",
+    "Zero Trust authorization with deny-by-default security model",
+    "Role-Based and Attribute-Based Access Control (RBAC/ABAC)",
+    "AI agent for natural language authorization queries using Anthropic Claude",
+    "Serverless architecture with AWS SAM, Lambda, and API Gateway",
+    "Real-time policy evaluation without code redeployment",
+    "Interactive web frontend for testing authorization scenarios"
+  ],
+  "publicApiSurface": [
+    "POST /check-access - Verify user authorization using AVP IsAuthorized",
+    "GET /users - Retrieve demo users, resources, and available actions",
+    "POST /agent - AI agent endpoint for natural language AVP queries"
+  ]
+}

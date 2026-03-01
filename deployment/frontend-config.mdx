@@ -3,20 +3,19 @@ title: Frontend Configuration
 description: Configure and run the frontend web applications
 ---
 
-The demo includes three HTML-based web applications that connect to your deployed backend API. This page shows you how to configure and run them locally.
+The demo includes two HTML-based web applications that connect to your deployed backend API. This page shows you how to configure and run them locally.
 
 ## Frontend Applications
 
-The project includes three web applications:
+The project includes two web applications:
 
 | File | Purpose | Features |
 |------|---------|----------|
 | `index.html` | Main AVP demo lab | Interactive access control testing with AVP |
 | `avp-agent.html` | AI agent interface | Natural language queries to AVP using Claude |
-| `avp-level3-concept.html` | Level 3 concept demo | Experimental: natural language to Cedar policies |
 
 <Note>
-  All three applications are static HTML files with embedded JavaScript. No build process or npm dependencies required.
+  Both applications are static HTML files with embedded JavaScript. No build process or npm dependencies required.
 </Note>
 
 ## Configure API URL
@@ -71,14 +70,6 @@ You need to update the API Gateway URL in the HTML files to point to your deploy
     ```javascript
     const API_BASE = "https://abc123def4.execute-api.us-west-2.amazonaws.com/prod";
     ```
-  </Step>
-
-  <Step title="Update avp-level3-concept.html (optional)">
-    If you plan to use the Level 3 concept demo, update the API URL in `avp-level3-concept.html` as well.
-    
-    <Note>
-      This file may require entering your Anthropic API key directly in the UI. It's an experimental feature and not part of the main demo flow.
-    </Note>
   </Step>
 </Steps>
 
@@ -154,21 +145,6 @@ http://localhost:8000/avp-agent.html
 <Warning>
   If you used `placeholder` for the Anthropic API key during deployment, this interface will not work. You'll need to redeploy with a valid API key.
 </Warning>
-
-### Level 3 Concept Demo
-
-```
-http://localhost:8000/avp-level3-concept.html
-```
-
-**What it does:**
-- Experimental: converts natural language to Cedar policies
-- Uses AI to generate policy recommendations
-- Educational tool for understanding Cedar syntax
-
-<Note>
-  This is a concept demonstration and not part of the main demo flow. Use it to explore how AI can assist with policy authoring.
-</Note>
 
 ## Using the Main Lab
 
